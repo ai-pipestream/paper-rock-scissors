@@ -4,16 +4,16 @@ import com.rickert.arena.model.MatchStatistics;
 import com.rickert.arena.util.GameLogic;
 import com.rickert.tourney.stream.*;
 import io.quarkus.grpc.GrpcService;
-import io.quarkus.hibernate.reactive.panache.Panache;
+import io.quarkus.hibernate.orm.panache.Panache;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.operators.multi.processors.BroadcastProcessor;
 import jakarta.inject.Singleton;
+import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Streaming gRPC Service implementation.
@@ -260,7 +260,9 @@ public class StreamingArenaService implements StreamingArena {
     }
     
     private void saveStreamingStatistics(StreamMatch match, long durationMillis) {
-        Panache.withTransaction(() -> {
+        try {
+            Panache.getEntityManager().getTransaction().begin();
+            
             MatchStatistics stats = new MatchStatistics();
             stats.matchId = match.matchId;
             stats.matchType = "STREAMING";
@@ -292,11 +294,17 @@ public class StreamingArenaService implements StreamingArena {
             LOG.infof("Streaming match stats saved: RPS=%.2f, P1 Bias=%.2f%%, P2 Bias=%.2f%%",
                 stats.roundsPerSecond, stats.playerOneBias, stats.playerTwoBias);
             
-            return stats.persist();
-        }).subscribe().with(
-            v -> LOG.info("Statistics saved successfully"),
-            failure -> LOG.errorf("Failed to save statistics: %s", failure.getMessage())
-        );
+            stats.persist();
+            
+            Panache.getEntityManager().getTransaction().commit();
+        } catch (Exception e) {
+            LOG.errorf("Failed to save statistics: %s", e.getMessage());
+            try {
+                Panache.getEntityManager().getTransaction().rollback();
+            } catch (Exception rollbackEx) {
+                // Ignore
+            }
+        }
     }
     
     private boolean detectSeedCollision(StreamMatch match) {

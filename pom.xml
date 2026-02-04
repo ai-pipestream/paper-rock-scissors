@@ -45,17 +45,11 @@
             <artifactId>quarkus-grpc</artifactId>
         </dependency>
         
-        <!-- Reactive Postgres for Unary state persistence -->
+        <!-- Hibernate ORM for Unary state persistence -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-hibernate-reactive-panache</artifactId>
+            <artifactId>quarkus-hibernate-orm-panache</artifactId>
         </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-reactive-pg-client</artifactId>
-        </dependency>
-        
-        <!-- H2 for easier local development -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-jdbc-h2</artifactId>

@@ -1,7 +1,6 @@
 package com.rickert.arena.model;
 
-import io.smallrye.mutiny.Uni;
-import io.quarkus.hibernate.reactive.panache.PanacheEntity;
+import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.List;
@@ -45,11 +44,11 @@ public class UnaryMatch extends PanacheEntity {
         COMPLETED
     }
     
-    public static Uni<UnaryMatch> findByMatchId(String matchId) {
+    public static UnaryMatch findByMatchId(String matchId) {
         return find("matchId", matchId).firstResult();
     }
     
-    public static Uni<List<UnaryMatch>> findWaitingMatches() {
+    public static List<UnaryMatch> findWaitingMatches() {
         return list("status", MatchStatus.WAITING_FOR_OPPONENT);
     }
 }

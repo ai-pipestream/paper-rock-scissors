@@ -1,7 +1,6 @@
 package com.rickert.arena.model;
 
-import io.smallrye.mutiny.Uni;
-import io.quarkus.hibernate.reactive.panache.PanacheEntity;
+import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -38,7 +37,7 @@ public class UnaryRound extends PanacheEntity {
         COMPLETE
     }
     
-    public static Uni<UnaryRound> findByMatchAndRound(String matchId, int roundNumber) {
+    public static UnaryRound findByMatchAndRound(String matchId, int roundNumber) {
         return find("matchId = ?1 and roundNumber = ?2", matchId, roundNumber).firstResult();
     }
 }
