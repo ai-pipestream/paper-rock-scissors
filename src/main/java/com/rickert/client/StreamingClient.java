@@ -41,8 +41,11 @@ public class StreamingClient {
         
         CountDownLatch finishLatch = new CountDownLatch(1);
         
+        // Use array to work around "effectively final" requirement
+        final StreamObserver<ArenaMessage>[] requestObserverHolder = new StreamObserver[1];
+        
         // Create the bidirectional stream
-        StreamObserver<ArenaMessage> requestObserver = asyncStub.battle(
+        requestObserverHolder[0] = asyncStub.battle(
             new StreamObserver<GameUpdate>() {
                 private int roundsCompleted = 0;
                 
@@ -63,7 +66,7 @@ public class StreamingClient {
                     } else if (update.hasTrigger()) {
                         // Server requesting a move - respond immediately
                         int move = random.nextInt(3);
-                        requestObserver.onNext(ArenaMessage.newBuilder()
+                        requestObserverHolder[0].onNext(ArenaMessage.newBuilder()
                             .setMove(Move.newBuilder().setMove(move).build())
                             .build());
                     } else if (update.hasResult()) {
@@ -91,7 +94,7 @@ public class StreamingClient {
         );
         
         // Send handshake
-        requestObserver.onNext(ArenaMessage.newBuilder()
+        requestObserverHolder[0].onNext(ArenaMessage.newBuilder()
             .setHandshake(Handshake.newBuilder()
                 .setLanguageName(languageName)
                 .setPrngAlgorithm(prngAlgorithm)

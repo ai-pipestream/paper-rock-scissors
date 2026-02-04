@@ -10,8 +10,7 @@ import java.time.Instant;
  * Stores individual moves and results to demonstrate database IOPS overhead.
  */
 @Entity
-@Table(name = "unary_round")
-@Table(indexes = {
+@Table(name = "unary_round", indexes = {
     @Index(name = "idx_match_round", columnList = "matchId,roundNumber")
 })
 public class UnaryRound extends PanacheEntity {

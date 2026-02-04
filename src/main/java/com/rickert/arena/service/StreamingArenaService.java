@@ -7,7 +7,7 @@ import io.quarkus.grpc.GrpcService;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.operators.multi.processors.BroadcastProcessor;
-import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Singleton;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Demonstrates the "clean" streaming approach with in-memory state management.
  */
 @GrpcService
-@ApplicationScoped
+@Singleton
 public class StreamingArenaService implements StreamingArena {
     
     private static final Logger LOG = Logger.getLogger(StreamingArenaService.class);

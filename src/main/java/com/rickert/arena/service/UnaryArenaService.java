@@ -8,7 +8,7 @@ import com.rickert.tourney.unary.*;
 import io.quarkus.grpc.GrpcService;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.smallrye.mutiny.Uni;
-import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Singleton;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Demonstrates the "painful" polling approach with database state management.
  */
 @GrpcService
-@ApplicationScoped
+@Singleton
 public class UnaryArenaService implements UnaryArena {
     
     private static final Logger LOG = Logger.getLogger(UnaryArenaService.class);
@@ -144,15 +144,16 @@ public class UnaryArenaService implements UnaryArena {
     public Uni<ResultResponse> checkRoundResult(ResultRequest request) {
         dbIopsCounter.incrementAndGet(); // SELECT round
         return UnaryRound.findByMatchAndRound(request.getMatchId(), request.getRoundNumber())
-            .onItem().ifNull().continueWith(() -> {
-                // Round doesn't exist yet
-                return ResultResponse.newBuilder()
-                    .setStatus("PENDING")
-                    .setOpponentMove(-1)
-                    .setOutcome("")
-                    .build();
-            })
             .onItem().transform(round -> {
+                if (round == null) {
+                    // Round doesn't exist yet
+                    return ResultResponse.newBuilder()
+                        .setStatus("PENDING")
+                        .setOpponentMove(-1)
+                        .setOutcome("")
+                        .build();
+                }
+                
                 if (round.status != UnaryRound.RoundStatus.COMPLETE) {
                     return ResultResponse.newBuilder()
                         .setStatus("PENDING")
