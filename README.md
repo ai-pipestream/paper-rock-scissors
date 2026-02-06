@@ -197,6 +197,120 @@ quarkus.datasource.jdbc.url=jdbc:h2:mem:arena
 # quarkus.datasource.password=arena_pass
 ```
 
+## Polyglot Clients
+
+This project now includes clients in multiple languages demonstrating cross-language gRPC compatibility:
+
+### Java Clients (Built-in)
+
+Located in `src/main/java/com/rickert/client/`:
+- `UnaryClient.java` - Polling-based approach
+- `StreamingClient.java` - Bidirectional streaming approach
+
+See "Running the Application" section above for usage.
+
+### Python Clients
+
+Located in `clients/python/`:
+
+**Setup:**
+```bash
+cd clients/python
+pip install -r requirements.txt
+./generate_protos.sh  # Generate gRPC stubs
+```
+
+**Run:**
+```bash
+# Unary client
+python3 unary_client.py --host localhost --port 9000 --language Python-3.12 --prng random.Random
+
+# Streaming client
+python3 streaming_client.py --host localhost --port 9000 --language Python-3.12 --prng random.SystemRandom
+```
+
+**Docker:**
+```bash
+docker build -f clients/python/Dockerfile -t prs-python-client .
+docker run --rm --network host prs-python-client python3 unary_client.py
+```
+
+See [clients/python/README.md](clients/python/README.md) for details.
+
+### Go Clients
+
+Located in `clients/go/`:
+
+**Setup:**
+```bash
+cd clients/go
+go mod download
+./generate_protos.sh  # Generate gRPC stubs
+```
+
+**Build:**
+```bash
+go build -o unary_client unary_client.go
+go build -o streaming_client streaming_client.go
+```
+
+**Run:**
+```bash
+# Unary client
+./unary_client -host localhost -port 9000 -language Go-1.24 -prng math/rand
+
+# Streaming client
+./streaming_client -host localhost -port 9000 -language Go-1.24 -prng crypto/rand
+```
+
+**Docker:**
+```bash
+docker build -f clients/go/Dockerfile -t prs-go-client .
+docker run --rm --network host prs-go-client ./unary_client
+```
+
+See [clients/go/README.md](clients/go/README.md) for details.
+
+## CI/CD Pipeline
+
+The project includes a comprehensive GitHub Actions workflow (`.github/workflows/ci-cd.yml`) that:
+
+1. **Builds and Tests Java Server** - Compiles, tests, and packages the Quarkus application
+2. **Builds Python Clients** - Generates stubs, validates syntax, and packages clients
+3. **Builds Go Clients** - Generates stubs, compiles binaries, and runs tests
+4. **Integration Tests** - Starts the server and tests all clients end-to-end
+5. **Docker Images** - Builds and publishes Docker images for all components
+
+The pipeline runs on:
+- Push to `main` or `develop` branches
+- Pull requests to `main` or `develop` branches
+
+## Docker Deployment
+
+### Server
+```bash
+# Build
+mvn package -DskipTests
+docker build -f src/main/docker/Dockerfile.jvm -t prs-arena .
+
+# Run
+docker run -i --rm -p 8080:8080 -p 9000:9000 prs-arena
+```
+
+### Complete Multi-Client Demo with Docker
+```bash
+# Terminal 1: Start server
+docker run --rm --name prs-arena -p 8080:8080 -p 9000:9000 prs-arena
+
+# Terminal 2: Python unary clients
+docker run --rm --network host prs-python-client python3 unary_client.py &
+docker run --rm --network host prs-python-client python3 unary_client.py
+
+# Terminal 3: Go streaming clients
+docker run --rm --network host prs-go-client ./streaming_client &
+docker run --rm --network host prs-go-client ./streaming_client
+```
+
 ## Database Schema
 
 The application automatically creates these tables:
@@ -207,19 +321,25 @@ The application automatically creates these tables:
 
 ## Extending with Other Languages
 
-To add clients in other languages:
+✅ **Implemented:** Python, Go, Java
 
-1. Copy the `.proto` files to your language's project
-2. Generate gRPC stubs for your language
-3. Implement the client following the patterns in `UnaryClient.java` or `StreamingClient.java`
-4. Use language-specific PRNG (e.g., `random.SystemRandom()` for Python, `crypto/rand` for Go)
+The project demonstrates polyglot gRPC clients. To add clients in additional languages:
 
-Example languages to implement:
-- Python (using `random.SystemRandom()` or `random.Random()`)
-- Go (using `math/rand` or `crypto/rand`)
+1. Copy the `.proto` files from `src/main/proto/`
+2. Add appropriate `option` for your language (e.g., `option python_package`, `option go_package`)
+3. Generate gRPC stubs for your language
+4. Implement the client following the patterns in existing clients
+5. Use language-specific PRNG for statistical comparison
+
+**Suggested languages to add:**
 - Node.js (using `Math.random()` or `crypto.randomInt()`)
 - Rust (using `rand` crate)
 - C++ (using `<random>`)
+- C# (using `System.Random` or `System.Security.Cryptography`)
+
+**Proto file locations:**
+- `src/main/proto/tourney_unary.proto` - Unary/polling service
+- `src/main/proto/tourney_stream.proto` - Bidirectional streaming service
 
 ## Development
 
