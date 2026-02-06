@@ -13,37 +13,23 @@ This document describes the architecture of the Paper-Rock-Scissors Arena, a Qua
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    The Arena (Judge)                     │
-│              Quarkus gRPC Server (Port 9000)             │
-├──────────────────────┬──────────────────────────────────┤
-│  Unary Service       │  Streaming Service                │
-│  (Stateless)         │  (Stateful)                       │
-│                      │                                   │
-│  ┌──────────────┐   │  ┌──────────────────────────┐    │
-│  │  Register    │   │  │  BiDi Stream Handler     │    │
-│  │  SubmitMove  │   │  │                          │    │
-│  │  CheckResult │   │  │  - Handshake             │    │
-│  └──────┬───────┘   │  │  - RequestMove (Pulse)   │    │
-│         │           │  │  - Move Response         │    │
-│         ▼           │  │  - RoundResult           │    │
-│  ┌──────────────┐   │  └──────────────────────────┘    │
-│  │  PostgreSQL  │   │  ┌──────────────────────────┐    │
-│  │  H2 Database │   │  │  In-Memory HashMap       │    │
-│  │              │   │  │  ConcurrentHashMap       │    │
-│  │  - Matches   │   │  │                          │    │
-│  │  - Rounds    │   │  │  - Active Matches        │    │
-│  │  - Stats     │   │  │  - Player Connections    │    │
-│  └──────────────┘   │  └──────────────────────────┘    │
-└──────────────────────┴──────────────────────────────────┘
-           ▲                           ▲
-           │                           │
-           │                           │
-    ┌──────┴────────┐          ┌──────┴────────┐
-    │ Unary Client  │          │Stream Client  │
-    │ (Polling)     │          │ (Push-based)  │
-    └───────────────┘          └───────────────┘
+```mermaid
+graph TB
+    subgraph Arena["The Arena (Judge) — Quarkus gRPC Server (Port 9000)"]
+        subgraph Unary["Unary Service (Stateless)"]
+            UnaryAPI["Register\nSubmitMove\nCheckResult"]
+            UnaryDB["PostgreSQL / H2 Database\n- Matches\n- Rounds\n- Stats"]
+            UnaryAPI --> UnaryDB
+        end
+        subgraph Streaming["Streaming Service (Stateful)"]
+            StreamAPI["BiDi Stream Handler\n- Handshake\n- RequestMove (Pulse)\n- Move Response\n- RoundResult"]
+            StreamMem["In-Memory ConcurrentHashMap\n- Active Matches\n- Player Connections"]
+            StreamAPI --> StreamMem
+        end
+    end
+
+    UC["Unary Client\n(Polling)"] -->|gRPC Unary| UnaryAPI
+    SC["Stream Client\n(Push-based)"] -->|gRPC BiDi Stream| StreamAPI
 ```
 
 ## Component Details
@@ -51,7 +37,7 @@ This document describes the architecture of the Paper-Rock-Scissors Arena, a Qua
 ### 1. The Arena (Quarkus Server)
 
 **Technology Stack:**
-- Quarkus 3.6.4
+- Quarkus 3.x
 - gRPC with Mutiny reactive extensions
 - Hibernate Reactive Panache
 - H2/PostgreSQL database
@@ -76,29 +62,35 @@ message SubmitMoveRequest {
 
 #### Flow Diagram
 
-```
-Client A                    Server                    Database
-   │                           │                          │
-   ├─Register()───────────────►│                          │
-   │                           ├─INSERT Match─────────────►│
-   │◄──{match_id}──────────────┤                          │
-   │                           │                          │
-   ├─SubmitMove(match_id, 1)──►│                          │
-   │                           ├─SELECT Match─────────────►│
-   │                           ├─INSERT/UPDATE Round──────►│
-   │◄──ACCEPTED────────────────┤                          │
-   │                           │                          │
-   ├─CheckResult(match_id, 1)─►│                          │
-   │                           ├─SELECT Round─────────────►│
-   │◄──PENDING─────────────────┤                          │
-   │                           │                          │
-   ├─CheckResult(match_id, 1)─►│  [POLLING LOOP]          │
-   │                           ├─SELECT Round─────────────►│
-   │◄──PENDING─────────────────┤                          │
-   │                           │                          │
-   ├─CheckResult(match_id, 1)─►│                          │
-   │                           ├─SELECT Round─────────────►│
-   │◄──COMPLETE, outcome───────┤                          │
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant S as Server
+    participant DB as Database
+
+    A->>S: Register()
+    S->>DB: INSERT Match
+    S-->>A: {match_id}
+
+    A->>S: SubmitMove(match_id, 1)
+    S->>DB: SELECT Match
+    S->>DB: INSERT/UPDATE Round
+    S-->>A: ACCEPTED
+
+    A->>S: CheckResult(match_id, 1)
+    S->>DB: SELECT Round
+    S-->>A: PENDING
+
+    rect rgb(255, 240, 240)
+        Note over A,S: Polling Loop
+        A->>S: CheckResult(match_id, 1)
+        S->>DB: SELECT Round
+        S-->>A: PENDING
+    end
+
+    A->>S: CheckResult(match_id, 1)
+    S->>DB: SELECT Round
+    S-->>A: COMPLETE, outcome
 ```
 
 **Database Operations per Round:**
@@ -125,31 +117,40 @@ message BattleRequest {
 
 #### Flow Diagram
 
-```
-Client A              Server (In-Memory State)           Client B
-   │                          │                              │
-   ├─Stream.open()────────────►│                              │
-   ├─Handshake────────────────►│◄────────────Stream.open()───┤
-   │                          │◄────────────Handshake────────┤
-   │                          │                              │
-   │                    [Match Pair Created]                 │
-   │                    [Stream IS context]                  │
-   │                          │                              │
-   │◄──OPPONENT_FOUND─────────┤───────OPPONENT_FOUND───────►│
-   │◄──RequestMove(round=1)───┤───────RequestMove(round=1)─►│
-   │                          │                              │
-   ├─Move(ROCK)───────────────►│                              │
-   │                          │◄─────────Move(PAPER)─────────┤
-   │                          │                              │
-   │                    [Process Round]                      │
-   │                          │                              │
-   │◄──Result(LOSS)───────────┤───────Result(WIN)──────────►│
-   │◄──RequestMove(round=2)───┤───────RequestMove(round=2)─►│
-   │                          │                              │
-   ... [Repeat for 1,000 rounds] ...
-   │                          │                              │
-   │◄──MATCH_COMPLETE─────────┤───────MATCH_COMPLETE───────►│
-   │                          │                              │
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant S as Server (In-Memory State)
+    participant B as Client B
+
+    A->>S: Stream.open()
+    A->>S: Handshake
+    B->>S: Stream.open()
+    B->>S: Handshake
+
+    Note over A,B: Match Pair Created — Stream IS context
+
+    S-->>A: OPPONENT_FOUND
+    S-->>B: OPPONENT_FOUND
+    S-->>A: RequestMove(round=1)
+    S-->>B: RequestMove(round=1)
+
+    A->>S: Move(ROCK)
+    B->>S: Move(PAPER)
+
+    Note over S: Process Round
+
+    S-->>A: Result(LOSS)
+    S-->>B: Result(WIN)
+    S-->>A: RequestMove(round=2)
+    S-->>B: RequestMove(round=2)
+
+    rect rgb(240, 248, 255)
+        Note over A,B: Repeat for 1,000 rounds
+    end
+
+    S-->>A: MATCH_COMPLETE
+    S-->>B: MATCH_COMPLETE
 ```
 
 **Database Operations per Match:**
@@ -265,8 +266,13 @@ The streaming service uses `BroadcastProcessor` to push updates to clients.
 
 ### 4. State Machine Pattern
 Match progression through states:
-```
-WAITING_FOR_OPPONENT → READY → IN_PROGRESS → COMPLETED
+```mermaid
+stateDiagram-v2
+    [*] --> WAITING_FOR_OPPONENT
+    WAITING_FOR_OPPONENT --> READY
+    READY --> IN_PROGRESS
+    IN_PROGRESS --> COMPLETED
+    COMPLETED --> [*]
 ```
 
 ### 5. Dumb Client Pattern

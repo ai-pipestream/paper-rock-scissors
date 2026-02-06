@@ -36,6 +36,35 @@ This model was made famous by COM (Component Object Model) on Windows and carrie
 
 An object lives in an apartment. If a thread from outside the apartment wants to talk to that object, the call is *marshaled* — serialized across a boundary and queued onto the owning thread. The owning thread processes these calls one at a time via a message pump.
 
+```mermaid
+flowchart LR
+    subgraph STA["STA (Single-Threaded Apartment)"]
+        direction TB
+        T1["🧵 Thread A<br/>(owner)"]
+        OBJ1(("Object<br/>X"))
+        MP["📬 Message<br/>Pump"]
+        MP -->|"processes<br/>one at a time"| T1
+        T1 -->|"direct<br/>access"| OBJ1
+    end
+
+    subgraph MTA["MTA (Multi-Threaded Apartment)"]
+        direction TB
+        T3["🧵 Thread C"] & T4["🧵 Thread D"]
+        OBJ2(("Object<br/>Y"))
+        T3 -->|"direct access<br/>(must sync!)"| OBJ2
+        T4 -->|"direct access<br/>(must sync!)"| OBJ2
+    end
+
+    T2["🧵 Thread B<br/>(outside STA)"]
+
+    T2 --->|"❌ cannot call directly"| OBJ1
+    T2 -->|"marshal call ⚡"| MP
+
+    style STA fill:#2d2d3f,stroke:#7c6fe0,color:#e0e0e0
+    style MTA fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+    style T2 fill:#3f2d2d,stroke:#e07c6f,color:#e0e0e0
+```
+
 #### Why It Stinks
 
 - **Hidden serialization bottlenecks.** Cross-apartment calls get marshaled through a message queue, turning what looks like a direct method call into an expensive round-trip. Developers often don't realize their "multi-threaded" app is secretly single-threaded through a bottleneck.
@@ -56,6 +85,47 @@ Java's `ExecutorService` and `ForkJoinPool` are canonical examples. Quarkus uses
 
 A fixed or dynamically-sized pool of threads sits idle until work items (typically `Runnable` or `Callable` instances) are submitted. A work-stealing or FIFO queue distributes tasks. Threads are recycled after completing a task.
 
+```mermaid
+flowchart LR
+    subgraph Producers
+        P1["📥 Task A"]
+        P2["📥 Task B"]
+        P3["📥 Task C"]
+        P4["📥 Task D"]
+        P5["📥 Task E"]
+    end
+
+    Q[["📋 Task Queue<br/>(FIFO)"]]
+
+    P1 & P2 & P3 & P4 & P5 --> Q
+
+    subgraph Pool["Thread Pool (fixed size)"]
+        direction TB
+        W1["🧵 Worker 1<br/>⚙️ busy"]
+        W2["🧵 Worker 2<br/>⚙️ busy"]
+        W3["🧵 Worker 3<br/>💤 idle"]
+    end
+
+    Q -->|"dequeue"| W1
+    Q -->|"dequeue"| W2
+    Q -.->|"waiting..."| W3
+
+    W1 -->|"♻️ recycle"| Q
+    W2 -->|"♻️ recycle"| Q
+
+    subgraph Problem["⚠️ Starvation Scenario"]
+        direction TB
+        BW1["🧵 Worker 1<br/>🔒 blocked on I/O"]
+        BW2["🧵 Worker 2<br/>🔒 blocked on I/O"]
+        BW3["🧵 Worker 3<br/>🔒 blocked on I/O"]
+        STUCK["📥 New tasks<br/>💀 NO THREADS LEFT"]
+    end
+
+    style Pool fill:#2d2d3f,stroke:#7c6fe0,color:#e0e0e0
+    style Problem fill:#3f2d2d,stroke:#e07c6f,color:#e0e0e0
+    style Q fill:#3f3f2d,stroke:#e0d06f,color:#e0e0e0
+```
+
 #### Why It Stinks
 
 - **Thread starvation.** If all pool threads block on I/O or locks, no threads remain for new work. The entire application stalls even though the CPU is idle.
@@ -74,6 +144,44 @@ Java's `ForkJoinPool` (introduced in Java 7) is the primary implementation. It a
 #### How It Works
 
 A task splits its work into smaller subtasks and submits them. Each worker thread has its own deque. When a thread runs out of work, it steals from the tail of another thread's deque. This keeps all cores busy without centralized coordination.
+
+```mermaid
+flowchart TB
+    TASK["🔷 Task: sort(1..1000)"]
+
+    TASK -->|"fork"| L["🔹 sort(1..500)"]
+    TASK -->|"fork"| R["🔹 sort(501..1000)"]
+
+    L -->|"fork"| LL["🔸 sort(1..250)"]
+    L -->|"fork"| LR["🔸 sort(251..500)"]
+    R -->|"fork"| RL["🔸 sort(501..750)"]
+    R -->|"fork"| RR["🔸 sort(751..1000)"]
+
+    subgraph W1["🧵 Worker 1 — own deque"]
+        D1["LL → LR"]
+    end
+    subgraph W2["🧵 Worker 2 — own deque"]
+        D2["RL → RR"]
+    end
+    subgraph W3["🧵 Worker 3 — idle"]
+        D3["(empty)"]
+    end
+
+    LL --> D1
+    LR --> D1
+    RL --> D2
+    RR --> D2
+
+    D3 -.->|"🫳 steal from tail"| D1
+
+    D1 & D2 -->|"join ⬆️"| RESULT["✅ Sorted Result"]
+
+    style TASK fill:#2d2d3f,stroke:#7c6fe0,color:#e0e0e0
+    style W1 fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+    style W2 fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+    style W3 fill:#3f3f2d,stroke:#e0d06f,color:#e0e0e0
+    style RESULT fill:#2d3f3f,stroke:#6fc0e0,color:#e0e0e0
+```
 
 #### Why It Stinks
 
@@ -94,6 +202,43 @@ Node.js is the poster child. In the JVM world, Vert.x (which Quarkus uses under 
 
 The loop polls for I/O readiness (via `epoll`, `kqueue`, etc.), then invokes registered callbacks for ready events. Because only one thread touches the event state, there's no need for locks on the event-handling path.
 
+```mermaid
+flowchart TB
+    subgraph Loop["🔄 Event Loop (single thread)"]
+        direction TB
+        POLL["1️⃣ Poll for I/O readiness<br/>(epoll / kqueue)"]
+        DISPATCH["2️⃣ Dispatch ready callbacks"]
+        EXEC["3️⃣ Execute callback"]
+        POLL --> DISPATCH --> EXEC --> POLL
+    end
+
+    subgraph IO["Non-blocking I/O Sources"]
+        S1["🔌 Socket A<br/>ready ✅"]
+        S2["🔌 Socket B<br/>waiting..."]
+        S3["🔌 Socket C<br/>ready ✅"]
+        S4["📁 File D<br/>waiting..."]
+    end
+
+    subgraph CBs["Registered Callbacks"]
+        CB1["cb_A()"]
+        CB3["cb_C()"]
+    end
+
+    S1 -->|"ready"| POLL
+    S3 -->|"ready"| POLL
+    DISPATCH --> CB1
+    DISPATCH --> CB3
+
+    BLOCK["⚠️ CPU-heavy or blocking<br/>callback in cb_A()"]
+    CB1 -.->|"⏳ blocks the<br/>ENTIRE loop"| BLOCK
+    BLOCK -.->|"💀 Socket C starved"| CB3
+
+    style Loop fill:#2d2d3f,stroke:#7c6fe0,color:#e0e0e0
+    style IO fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+    style BLOCK fill:#3f2d2d,stroke:#e07c6f,color:#e0e0e0
+    style CBs fill:#3f3f2d,stroke:#e0d06f,color:#e0e0e0
+```
+
 #### Why It Stinks
 
 - **Callback hell / colored functions.** Code splits into async and sync worlds. You can't call async code from sync code without ceremony, and call stacks become meaningless — debugging a chain of callbacks or promise continuations is painful.
@@ -112,6 +257,44 @@ Erlang/OTP pioneered this model. On the JVM, Akka (now Pekko) is the dominant im
 #### How It Works
 
 Each actor has a mailbox (a queue), private state, and a behavior function. When a message arrives, the actor processes it, potentially updating its state, sending messages to other actors, or spawning new actors. No locks are needed because an actor never shares its state.
+
+```mermaid
+flowchart LR
+    subgraph A1["🎭 Actor: DocumentParser"]
+        direction TB
+        MB1["📬 Mailbox"]
+        S1["🔒 Private State<br/>parseCount: 42"]
+        B1["⚙️ Behavior:<br/>on ParseRequest → parse & reply"]
+        MB1 -->|"dequeue<br/>one at a time"| B1
+        B1 -->|"update"| S1
+    end
+
+    subgraph A2["🎭 Actor: IndexWriter"]
+        direction TB
+        MB2["📬 Mailbox"]
+        S2["🔒 Private State<br/>batchBuffer: [...]"]
+        B2["⚙️ Behavior:<br/>on IndexCmd → buffer & flush"]
+        MB2 -->|"dequeue<br/>one at a time"| B2
+        B2 -->|"update"| S2
+    end
+
+    subgraph A3["🎭 Actor: Supervisor"]
+        direction TB
+        MB3["📬 Mailbox"]
+        B3["⚙️ Behavior:<br/>on Failure → restart child"]
+        MB3 --> B3
+    end
+
+    REQ["📨 ParseRequest"] -->|"send"| MB1
+    B1 -->|"📨 IndexCmd"| MB2
+    B1 -->|"📨 ParseComplete"| MB3
+    B2 -.->|"📨 Failure!"| MB3
+    B3 -.->|"🔄 restart"| A2
+
+    style A1 fill:#2d2d3f,stroke:#7c6fe0,color:#e0e0e0
+    style A2 fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+    style A3 fill:#3f3f2d,stroke:#e0d06f,color:#e0e0e0
+```
 
 #### Why It Stinks
 
@@ -133,6 +316,40 @@ Available since Java 21 and supported in Quarkus, virtual threads aim to make re
 
 The JVM schedules virtual threads onto a small pool of carrier (platform) threads. When a virtual thread hits a blocking operation (`Socket.read()`, `Thread.sleep()`, etc.), the JVM unmounts it from the carrier thread and mounts another virtual thread in its place. When the I/O completes, the virtual thread is rescheduled. From the developer's perspective, code looks identical to traditional blocking code.
 
+```mermaid
+flowchart TB
+    subgraph VTs["Virtual Threads (millions possible)"]
+        VT1["🟢 VT-1<br/>running"]
+        VT2["🟡 VT-2<br/>blocked on I/O"]
+        VT3["🟢 VT-3<br/>running"]
+        VT4["🟡 VT-4<br/>blocked on I/O"]
+        VT5["⚪ VT-5<br/>waiting to schedule"]
+        VT6["🔴 VT-6<br/>📌 PINNED<br/>(synchronized)"]
+    end
+
+    subgraph Carriers["Carrier Threads (OS threads, small pool)"]
+        CT1["🧵 Carrier 1"]
+        CT2["🧵 Carrier 2"]
+    end
+
+    VT1 -->|"mounted on"| CT1
+    VT3 -->|"mounted on"| CT2
+    VT2 -.->|"⏏️ unmounted<br/>(I/O blocked)"| CT1
+    VT5 -.->|"⏳ waiting for<br/>free carrier"| Carriers
+    VT6 ==>|"📌 pinned!<br/>carrier blocked"| CT2
+
+    VT2 -.->|"I/O completes →<br/>remount"| Carriers
+
+    note1["✅ VT-2 unmounts cleanly:<br/>carrier freed for VT-5"]
+    note2["❌ VT-6 pins carrier:<br/>CT2 stuck, starves others"]
+
+    style VTs fill:#2d2d3f,stroke:#7c6fe0,color:#e0e0e0
+    style Carriers fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+    style VT6 fill:#3f2d2d,stroke:#e07c6f,color:#e0e0e0
+    style note1 fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+    style note2 fill:#3f2d2d,stroke:#e07c6f,color:#e0e0e0
+```
+
 #### Why It Stinks
 
 - **`synchronized` and native pinning.** If a virtual thread enters a `synchronized` block or calls native/JNI code, it *pins* to the carrier thread — meaning the carrier thread blocks and can't run other virtual threads. This silently reintroduces the thread starvation problem. `ReentrantLock` avoids pinning, but migrating `synchronized` across an entire dependency tree (JDBC drivers, libraries) is a massive effort.
@@ -152,6 +369,46 @@ Java's `StructuredTaskScope` (preview in Java 21+) and Kotlin's coroutine scopes
 #### How It Works
 
 You open a scope, fork tasks within it, and the scope ensures all tasks complete before execution continues past the scope boundary. If any child fails, sibling tasks are cancelled and the error propagates to the parent. This creates a tree-shaped task hierarchy that mirrors the call stack.
+
+```mermaid
+flowchart TB
+    subgraph Scope["📦 StructuredTaskScope.open()"]
+        direction TB
+        PARENT["🔷 Parent Task<br/>handleRequest()"]
+
+        PARENT -->|"fork"| C1["🔹 Child 1<br/>fetchUser()"]
+        PARENT -->|"fork"| C2["🔹 Child 2<br/>fetchPermissions()"]
+        PARENT -->|"fork"| C3["🔹 Child 3<br/>fetchConfig()"]
+
+        C2 -->|"💥 FAILURE"| FAIL["❌ Exception"]
+        FAIL -->|"⬆️ propagate"| PARENT
+
+        FAIL -.->|"🚫 cancel"| C1
+        FAIL -.->|"🚫 cancel"| C3
+    end
+
+    BEFORE["▶️ Code before scope"]
+    AFTER["▶️ Code after scope<br/>(only runs after ALL<br/>children complete/cancel)"]
+
+    BEFORE --> Scope
+    Scope --> AFTER
+
+    subgraph Unstructured["⚠️ Without Structured Concurrency"]
+        direction TB
+        U1["executor.submit(fetchUser)"]
+        U2["executor.submit(fetchPermissions)"]
+        U3["executor.submit(fetchConfig)"]
+        UF["💥 fetchPermissions fails"]
+        UL["🧟 fetchUser & fetchConfig<br/>keep running... leaked!"]
+        U2 --> UF
+        UF -.-> UL
+    end
+
+    style Scope fill:#2d2d3f,stroke:#7c6fe0,color:#e0e0e0
+    style FAIL fill:#3f2d2d,stroke:#e07c6f,color:#e0e0e0
+    style Unstructured fill:#3f2d2d,stroke:#e07c6f,color:#e0e0e0
+    style AFTER fill:#2d3f2d,stroke:#6fe07c,color:#e0e0e0
+```
 
 #### Why It Stinks
 
@@ -199,10 +456,10 @@ A `Uni` represents an asynchronous operation that will eventually emit a single 
 @Override
 public Uni<DocumentResponse> parseDocument(ParseRequest request) {
     return documentParser.parse(request.getContent())
-        .onItem().transform(parsed -> DocumentResponse.newBuilder()
-            .setId(parsed.getId())
-            .setStatus(Status.COMPLETED)
-            .build());
+            .onItem().transform(parsed -> DocumentResponse.newBuilder()
+                    .setId(parsed.getId())
+                    .setStatus(Status.COMPLETED)
+                    .build());
 }
 ```
 
@@ -220,10 +477,10 @@ A `Multi` represents a stream of items emitted over time. It's the reactive equi
 @Override
 public Multi<ProgressUpdate> watchPipeline(WatchRequest request) {
     return pipelineTracker.streamUpdates(request.getPipelineId())
-        .onItem().transform(event -> ProgressUpdate.newBuilder()
-            .setStage(event.getStage())
-            .setPercentComplete(event.getProgress())
-            .build());
+            .onItem().transform(event -> ProgressUpdate.newBuilder()
+                    .setStage(event.getStage())
+                    .setPercentComplete(event.getProgress())
+                    .build());
 }
 ```
 
@@ -247,9 +504,9 @@ The real power of Mutiny is how operations compose. Instead of nested callbacks 
 return documentStore.findById(id)                       // Uni<Document>
     .onItem().ifNotNull().transform(this::validate)      // Uni<Document> (validated)
     .chain(doc -> enrichmentService.enrich(doc))          // Uni<EnrichedDocument>
-    .chain(enriched -> indexService.index(enriched))       // Uni<IndexResult>
-    .onItem().transform(result -> buildResponse(result))  // Uni<GrpcResponse>
-    .onFailure().recoverWithItem(this::buildErrorResponse);
+        .chain(enriched -> indexService.index(enriched))       // Uni<IndexResult>
+        .onItem().transform(result -> buildResponse(result))  // Uni<GrpcResponse>
+        .onFailure().recoverWithItem(this::buildErrorResponse);
 ```
 
 Each step in the chain runs only when the previous step completes. If any step fails, the failure propagates down to `onFailure()` — similar to how exceptions propagate up a call stack, but asynchronously. No threads are blocked while waiting for I/O at any point in this pipeline.
@@ -267,7 +524,7 @@ If you have unavoidably blocking code, explicitly move it off the event loop:
 
 ```java
 return Uni.createFrom().item(() -> legacyBlockingCall())
-    .runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+        .runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
 ```
 
 This tells Mutiny to run the blocking operation on a worker thread pool instead of the Vert.x event loop, keeping the I/O threads free.
