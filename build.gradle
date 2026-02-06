@@ -20,7 +20,7 @@ dependencies {
     testImplementation 'io.quarkus:quarkus-junit'
 }
 
-group = 'com.rickert'
+group = 'ai.pipestream'
 version = '1.0.0-SNAPSHOT'
 
 java {

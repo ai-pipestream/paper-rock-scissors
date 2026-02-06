@@ -1,4 +1,4 @@
-package com.rickert.arena.model;
+package ai.pipestream.arena.model;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;

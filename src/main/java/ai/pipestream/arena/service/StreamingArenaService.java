@@ -1,8 +1,8 @@
-package com.rickert.arena.service;
+package ai.pipestream.arena.service;
 
-import com.rickert.arena.model.MatchStatistics;
-import com.rickert.arena.util.GameLogic;
-import com.rickert.tourney.stream.*;
+import ai.pipestream.arena.model.MatchStatistics;
+import ai.pipestream.arena.util.GameLogic;
+import ai.pipestream.tourney.stream.*;
 import io.quarkus.grpc.GrpcService;
 import io.quarkus.hibernate.orm.panache.Panache;
 import io.smallrye.mutiny.Multi;

@@ -1,6 +1,6 @@
-package com.rickert.client;
+package ai.pipestream.client;
 
-import com.rickert.tourney.stream.*;
+import ai.pipestream.tourney.stream.*;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;

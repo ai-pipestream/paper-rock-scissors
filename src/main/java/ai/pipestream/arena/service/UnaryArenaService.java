@@ -1,10 +1,10 @@
-package com.rickert.arena.service;
+package ai.pipestream.arena.service;
 
-import com.rickert.arena.model.UnaryMatch;
-import com.rickert.arena.model.UnaryRound;
-import com.rickert.arena.model.MatchStatistics;
-import com.rickert.arena.util.GameLogic;
-import com.rickert.tourney.unary.*;
+import ai.pipestream.arena.model.UnaryMatch;
+import ai.pipestream.arena.model.UnaryRound;
+import ai.pipestream.arena.model.MatchStatistics;
+import ai.pipestream.arena.util.GameLogic;
+import ai.pipestream.tourney.unary.*;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Singleton;

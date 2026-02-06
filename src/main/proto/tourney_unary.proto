@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tourney.unary;
 
-option java_package = "com.rickert.tourney.unary";
+option java_package = "ai.pipestream.tourney.unary";
 option java_multiple_files = true;
 option go_package = "github.com/ai-pipestream/paper-rock-scissors/clients/go/pb/tourney_unary";
 

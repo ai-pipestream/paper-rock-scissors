@@ -1,4 +1,4 @@
-package com.rickert.arena.util;
+package ai.pipestream.arena.util;
 
 /**
  * Utility class for Rock-Paper-Scissors game logic.

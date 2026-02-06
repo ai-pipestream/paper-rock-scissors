@@ -1,6 +1,6 @@
-package com.rickert.client;
+package ai.pipestream.client;
 
-import com.rickert.tourney.unary.*;
+import ai.pipestream.tourney.unary.*;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import org.jboss.logging.Logger;
