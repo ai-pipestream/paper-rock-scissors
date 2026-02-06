@@ -9,7 +9,7 @@ import (
 	"math/rand"
 	"time"
 
-	pb "github.com/ai-pipestream/paper-rock-scissors/clients/go/pb/tourney_stream"
+	pb "github.com/ai-pipestream/paper-rock-scissors/clients/go/pb/ai/pipestream/tourney/stream/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -17,7 +17,7 @@ import (
 // StreamingClient implements the "clean" streaming approach
 type StreamingClient struct {
 	conn           *grpc.ClientConn
-	client         pb.StreamingArenaClient
+	client         pb.StreamingArenaServiceClient
 	languageName   string
 	prngAlgo       string
 	random         *rand.Rand
@@ -34,7 +34,7 @@ func NewStreamingClient(host string, port int, languageName, prngAlgo string) (*
 
 	return &StreamingClient{
 		conn:         conn,
-		client:       pb.NewStreamingArenaClient(conn),
+		client:       pb.NewStreamingArenaServiceClient(conn),
 		languageName: languageName,
 		prngAlgo:     prngAlgo,
 		random:       rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -60,8 +60,8 @@ func (c *StreamingClient) Play() error {
 	}
 
 	// Send handshake
-	err = stream.Send(&pb.ArenaMessage{
-		Payload: &pb.ArenaMessage_Handshake{
+	err = stream.Send(&pb.BattleRequest{
+		Payload: &pb.BattleRequest_Handshake{
 			Handshake: &pb.Handshake{
 				LanguageName:  c.languageName,
 				PrngAlgorithm: c.prngAlgo,
@@ -85,7 +85,7 @@ func (c *StreamingClient) Play() error {
 
 		// Handle different update types
 		switch payload := update.Payload.(type) {
-		case *pb.GameUpdate_Status:
+		case *pb.BattleResponse_Status:
 			status := payload.Status
 			log.Printf("Status: %s", status)
 
@@ -97,12 +97,12 @@ func (c *StreamingClient) Play() error {
 				return stream.CloseSend()
 			}
 
-		case *pb.GameUpdate_Trigger:
+		case *pb.BattleResponse_Trigger:
 			// Server requesting a move - respond immediately
 			move := int32(c.random.Intn(3)) // 0=Rock, 1=Paper, 2=Scissors
 
-			err = stream.Send(&pb.ArenaMessage{
-				Payload: &pb.ArenaMessage_Move{
+			err = stream.Send(&pb.BattleRequest{
+				Payload: &pb.BattleRequest_Move{
 					Move: &pb.Move{
 						Move: move,
 					},
@@ -112,7 +112,7 @@ func (c *StreamingClient) Play() error {
 				return fmt.Errorf("failed to send move: %v", err)
 			}
 
-		case *pb.GameUpdate_Result:
+		case *pb.BattleResponse_Result:
 			// Round result received
 			c.roundsComplete++
 			result := payload.Result

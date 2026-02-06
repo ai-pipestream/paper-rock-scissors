@@ -55,18 +55,19 @@ This document describes the architecture of the Paper-Rock-Scissors Arena, a Qua
 - gRPC with Mutiny reactive extensions
 - Hibernate Reactive Panache
 - H2/PostgreSQL database
+- **Buf** for proto linting and management
 
-**Key Classes:**
-- `UnaryArenaService`: Implements the stateless, database-backed service
-- `StreamingArenaService`: Implements the stateful, in-memory service
+**Key Classes (v1):**
+- `ai.pipestream.arena.v1.service.UnaryArenaServiceImpl`: Implements the stateless, database-backed service
+- `ai.pipestream.arena.v1.service.StreamingArenaServiceImpl`: Implements the stateful, in-memory service
 
 ### 2. Unary Service Architecture
 
 #### The Pain Points
 
-```java
+```proto
 // Client must provide context on EVERY call
-MoveRequest {
+message SubmitMoveRequest {
   string match_id = 1;      // ← Context lookup required
   int32 round_number = 2;   // ← State synchronization
   int32 move = 3;
@@ -112,9 +113,9 @@ Client A                    Server                    Database
 
 #### The Clean Approach
 
-```java
+```proto
 // Context is implicit in the stream connection
-ArenaMessage {
+message BattleRequest {
   oneof payload {
     Handshake handshake = 1;  // Once per connection
     Move move = 2;            // No context needed!
@@ -158,7 +159,7 @@ Client A              Server (In-Memory State)           Client B
 
 ### 4. Game Logic
 
-Located in `GameLogic.java`:
+Located in `ai.pipestream.arena.v1.util.GameLogic`:
 
 ```java
 public static String determineWinner(int moveOne, int moveTwo) {
@@ -257,7 +258,7 @@ The system tracks and analyzes:
 Both services implement their respective gRPC interfaces with clear separation of concerns.
 
 ### 2. Repository Pattern
-Hibernate Reactive Panache provides reactive repository operations for entities.
+Hibernate Panache provides repository operations for entities.
 
 ### 3. Observer Pattern (Reactive Streams)
 The streaming service uses `BroadcastProcessor` to push updates to clients.

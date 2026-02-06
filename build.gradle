@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'io.quarkus'
+    id 'idea'
 }
 
 repositories {
@@ -10,14 +11,24 @@ repositories {
 
 dependencies {
     implementation enforcedPlatform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}")
+    
+    // gRPC
     implementation 'io.quarkus:quarkus-grpc'
-    implementation 'io.quarkus:quarkus-jdbc-h2'
+    
+    // Reactive Database
+    implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
+    implementation 'io.quarkus:quarkus-reactive-pg-client'
+    
+    // Configuration & Logging
     implementation 'io.quarkus:quarkus-config-yaml'
-    implementation 'io.quarkus:quarkus-hibernate-orm-panache'
     implementation 'io.quarkus:quarkus-logging-json'
+    
+    // Core
     implementation 'io.quarkus:quarkus-arc'
-    implementation 'io.quarkus:quarkus-hibernate-orm'
+    
+    // Testing
     testImplementation 'io.quarkus:quarkus-junit'
+    testImplementation 'io.smallrye.reactive:mutiny-test-utils'
 }
 
 group = 'ai.pipestream'
@@ -35,4 +46,25 @@ compileJava {
 
 compileTestJava {
     options.encoding = 'UTF-8'
+}
+
+test {
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+}
+
+// Help IntelliJ/IDEA recognize integration tests and generated sources
+idea {
+    module {
+        testSources.from(file('src/integrationTest/java'))
+        
+        def genProtoJava = file("$projectDir/build/generated/source/proto/main/java")
+        def genProtoGrpc = file("$projectDir/build/generated/source/proto/main/grpc")
+        def genAltGrpc = file("$projectDir/build/generated-sources/grpc")
+        def genAltProtoJava = file("$projectDir/build/generated-sources/protobuf/java")
+
+        [genProtoJava, genProtoGrpc, genAltGrpc, genAltProtoJava].each { d ->
+            sourceDirs += d
+            generatedSourceDirs += d
+        }
+    }
 }

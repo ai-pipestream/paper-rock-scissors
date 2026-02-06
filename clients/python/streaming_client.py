@@ -8,14 +8,19 @@ import random
 import argparse
 import grpc
 
-import tourney_stream_pb2
-import tourney_stream_pb2_grpc
+try:
+    from ai.pipestream.tourney.stream.v1 import stream_pb2
+    from ai.pipestream.tourney.stream.v1 import stream_pb2_grpc
+except ImportError:
+    # Fallback for flat structure
+    import stream_pb2
+    import stream_pb2_grpc
 
 
 class StreamingClient:
     def __init__(self, host='localhost', port=9000, language_name='Python-3.12', prng_algorithm='random.Random'):
         self.channel = grpc.insecure_channel(f'{host}:{port}')
-        self.stub = tourney_stream_pb2_grpc.StreamingArenaStub(self.channel)
+        self.stub = stream_pb2_grpc.StreamingArenaServiceStub(self.channel)
         self.language_name = language_name
         self.prng_algorithm = prng_algorithm
         self.random = random.Random()
@@ -45,8 +50,8 @@ class StreamingClient:
         responses = self.stub.Battle(request_iterator())
         
         # Send handshake first
-        request_queue.put(tourney_stream_pb2.ArenaMessage(
-            handshake=tourney_stream_pb2.Handshake(
+        request_queue.put(stream_pb2.BattleRequest(
+            handshake=stream_pb2.Handshake(
                 language_name=self.language_name,
                 prng_algorithm=self.prng_algorithm
             )
@@ -66,8 +71,8 @@ class StreamingClient:
                 elif update.HasField('trigger'):
                     # Server requesting a move - respond immediately
                     move = self.random.randint(0, 2)
-                    request_queue.put(tourney_stream_pb2.ArenaMessage(
-                        move=tourney_stream_pb2.Move(move=move)
+                    request_queue.put(stream_pb2.BattleRequest(
+                        move=stream_pb2.Move(move=move)
                     ))
                     
                 elif update.HasField('result'):

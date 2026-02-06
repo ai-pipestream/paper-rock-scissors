@@ -8,7 +8,7 @@ import (
 	"math/rand"
 	"time"
 
-	pb "github.com/ai-pipestream/paper-rock-scissors/clients/go/pb/tourney_unary"
+	pb "github.com/ai-pipestream/paper-rock-scissors/clients/go/pb/ai/pipestream/tourney/unary/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -16,7 +16,7 @@ import (
 // UnaryClient implements the "painful" polling approach
 type UnaryClient struct {
 	conn         *grpc.ClientConn
-	client       pb.UnaryArenaClient
+	client       pb.UnaryArenaServiceClient
 	languageName string
 	prngAlgo     string
 	random       *rand.Rand
@@ -32,7 +32,7 @@ func NewUnaryClient(host string, port int, languageName, prngAlgo string) (*Unar
 
 	return &UnaryClient{
 		conn:         conn,
-		client:       pb.NewUnaryArenaClient(conn),
+		client:       pb.NewUnaryArenaServiceClient(conn),
 		languageName: languageName,
 		prngAlgo:     prngAlgo,
 		random:       rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -52,7 +52,7 @@ func (c *UnaryClient) Play() error {
 	log.Printf("Unary Client starting: %s (%s)", c.languageName, c.prngAlgo)
 
 	// Step 1: Register
-	regResp, err := c.client.Register(ctx, &pb.RegistrationRequest{
+	regResp, err := c.client.Register(ctx, &pb.RegisterRequest{
 		LanguageName:  c.languageName,
 		PrngAlgorithm: c.prngAlgo,
 	})
@@ -76,7 +76,7 @@ func (c *UnaryClient) Play() error {
 		// Step 2: Submit move
 		move := int32(c.random.Intn(3)) // 0=Rock, 1=Paper, 2=Scissors
 
-		moveResp, err := c.client.SubmitMove(ctx, &pb.MoveRequest{
+		moveResp, err := c.client.SubmitMove(ctx, &pb.SubmitMoveRequest{
 			MatchId:     matchID,
 			RoundNumber: round,
 			Move:        move,
@@ -97,10 +97,10 @@ func (c *UnaryClient) Play() error {
 
 		// Step 3: Poll for result (THE PAINFUL PART)
 		pollAttempts := 0
-		var result *pb.ResultResponse
+		var result *pb.CheckRoundResultResponse
 		for {
 			pollAttempts++
-			result, err = c.client.CheckRoundResult(ctx, &pb.ResultRequest{
+			result, err = c.client.CheckRoundResult(ctx, &pb.CheckRoundResultRequest{
 				MatchId:     matchID,
 				RoundNumber: round,
 			})
@@ -126,7 +126,7 @@ func (c *UnaryClient) Play() error {
 
 func main() {
 	host := flag.String("host", "localhost", "Arena server host")
-	port := flag.Int("port", 9000, "Arena server port")
+	port := flag.Int("port", 9000, "Arena server host")
 	language := flag.String("language", "Go-1.21", "Language name")
 	prng := flag.String("prng", "math/rand", "PRNG algorithm")
 	flag.Parse()

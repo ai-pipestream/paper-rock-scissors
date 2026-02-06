@@ -1,86 +1,53 @@
-# paper-rock-scissors-arena
+# Paper-Rock-Scissors Arena
 
-This project uses Quarkus, the Supersonic Subatomic Java Framework.
+A high-performance, fully reactive gRPC arena for automated Paper-Rock-Scissors tournaments. This project serves as a "Source of Truth" for modern Quarkus development standards, demonstrating best practices for gRPC, reactive database access, and advanced testing strategies.
 
-If you want to learn more about Quarkus, please visit its website: <https://quarkus.io/>.
+## 🚀 Overview
 
-## Running the application in dev mode
+The Arena provides two modes of engagement:
+1.  **Unary (Stateless):** A classic polling-based approach where clients manage state via a match ID.
+2.  **Streaming (Stateful):** A bidirectional stream where the connection *is* the match state, offering minimal latency.
 
-You can run your application in dev mode that enables live coding using:
+## 🛠 Technology Stack
 
-```shell script
+*   **Runtime:** [Quarkus 3.31+](https://quarkus.io/)
+*   **Protocol:** [gRPC](https://grpc.io/) with [Mutiny](https://smallrye.io/smallrye-mutiny/) (Non-blocking)
+*   **Database:** [PostgreSQL](https://www.postgresql.org/) (Reactive)
+*   **Persistence:** [Hibernate Reactive with Panache](https://quarkus.io/guides/hibernate-reactive-panache)
+*   **Build Tool:** [Gradle](https://gradle.org/)
+*   **Dev Productivity:** [Quarkus Dev Services](https://quarkus.io/guides/dev-services) (Zero-config Docker containers)
+
+## 📖 Lessons & Standards
+
+This project is documented through a series of technical lessons located in the `docs/` directory. Each lesson maps directly to the implementation in this repository.
+
+*   **[Lesson 1: Reactive Programming with Mutiny](./docs/lessons/01-mutiny-reactive.md)**
+*   **[Lesson 2: gRPC Unary vs Streaming](./docs/lessons/02-grpc-patterns.md)**
+*   **[Lesson 3: Hibernate Reactive & Panache](./docs/lessons/03-hibernate-reactive.md)**
+*   **[Lesson 4: Advanced Testing (Test vs IT)](./docs/lessons/04-testing-standards.md)**
+*   **[Lesson 5: Dev Services & Environment](./docs/lessons/05-dev-services.md)**
+
+## 🚦 Getting Started
+
+### Prerequisites
+*   Java 17+
+*   Docker (for Dev Services)
+
+### Running the Arena
+Start the server in development mode:
+```bash
 ./gradlew quarkusDev
 ```
+Quarkus will automatically start a PostgreSQL container and the gRPC server on port `9000`.
 
-> **_NOTE:_**  Quarkus now ships with a Dev UI, which is available in dev mode only at <http://localhost:8080/q/dev/>.
+### Running Tests
+*   **Unit Tests:** `./gradlew test` (Fast, same-JVM tests using `@QuarkusTest`)
+*   **Integration Tests:** `./gradlew quarkusIntTest` (Tests against the packaged JAR using `@QuarkusIntegrationTest`)
 
-## Packaging and running the application
+## 🏗 Project Structure
 
-The application can be packaged using:
-
-```shell script
-./gradlew build
-```
-
-It produces the `quarkus-run.jar` file in the `build/quarkus-app/` directory.
-Be aware that it’s not an _über-jar_ as the dependencies are copied into the `build/quarkus-app/lib/` directory.
-
-The application is now runnable using `java -jar build/quarkus-app/quarkus-run.jar`.
-
-If you want to build an _über-jar_, execute the following command:
-
-```shell script
-./gradlew build -Dquarkus.package.jar.type=uber-jar
-```
-
-The application, packaged as an _über-jar_, is now runnable using `java -jar build/*-runner.jar`.
-
-## Creating a native executable
-
-You can create a native executable using:
-
-```shell script
-./gradlew build -Dquarkus.native.enabled=true
-```
-
-Or, if you don't have GraalVM installed, you can run the native executable build in a container using:
-
-```shell script
-./gradlew build -Dquarkus.native.enabled=true -Dquarkus.native.container-build=true
-```
-
-You can then execute your native executable with: `./build/paper-rock-scissors-arena-1.0.0-SNAPSHOT-runner`
-
-If you want to learn more about building native executables, please consult <https://quarkus.io/guides/gradle-tooling>.
-
-## Related Guides
-
-- JDBC Driver - H2 ([guide](https://quarkus.io/guides/datasource)): Connect to the H2 database via JDBC
-- YAML Configuration ([guide](https://quarkus.io/guides/config-yaml)): Use YAML to configure your Quarkus application
-- Hibernate ORM with Panache ([guide](https://quarkus.io/guides/hibernate-orm-panache)): Simplify your persistence code for Hibernate ORM via the active record or the repository pattern
-- Logging JSON ([guide](https://quarkus.io/guides/logging#json-logging)): Add JSON formatter for console logging
-
-## Provided Code
-
-### YAML Config
-
-Configure your application with YAML
-
-[Related guide section...](https://quarkus.io/guides/config-reference#configuration-examples)
-
-The Quarkus application configuration is located in `src/main/resources/application.yml`.
-
-### gRPC
-
-Create your first gRPC service
-
-[Related guide section...](https://quarkus.io/guides/grpc-getting-started)
-
-### Hibernate ORM
-
-Create your first JPA entity
-
-[Related guide section...](https://quarkus.io/guides/hibernate-orm)
-
-[Related Hibernate with Panache section...](https://quarkus.io/guides/hibernate-orm-panache)
-
+*   `src/main/java`: Reactive service implementations and models.
+*   `src/main/proto`: Protocol Buffer definitions.
+*   `src/test/java`: Unit tests.
+*   `src/integrationTest/java`: Integration tests.
+*   `clients/`: Reference clients in Go, Python, and Java.

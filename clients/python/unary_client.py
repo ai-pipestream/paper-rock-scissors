@@ -9,14 +9,19 @@ import random
 import argparse
 import grpc
 
-import tourney_unary_pb2
-import tourney_unary_pb2_grpc
+try:
+    from ai.pipestream.tourney.unary.v1 import unary_pb2
+    from ai.pipestream.tourney.unary.v1 import unary_pb2_grpc
+except ImportError:
+    # Fallback for flat structure
+    import unary_pb2
+    import unary_pb2_grpc
 
 
 class UnaryClient:
     def __init__(self, host='localhost', port=9000, language_name='Python-3.12', prng_algorithm='random.Random'):
         self.channel = grpc.insecure_channel(f'{host}:{port}')
-        self.stub = tourney_unary_pb2_grpc.UnaryArenaStub(self.channel)
+        self.stub = unary_pb2_grpc.UnaryArenaServiceStub(self.channel)
         self.language_name = language_name
         self.prng_algorithm = prng_algorithm
         self.random = random.Random()
@@ -29,7 +34,7 @@ class UnaryClient:
         
         # Step 1: Register
         reg_response = self.stub.Register(
-            tourney_unary_pb2.RegistrationRequest(
+            unary_pb2.RegisterRequest(
                 language_name=self.language_name,
                 prng_algorithm=self.prng_algorithm
             )
@@ -51,7 +56,7 @@ class UnaryClient:
             move = self.random.randint(0, 2)  # 0=Rock, 1=Paper, 2=Scissors
             
             move_response = self.stub.SubmitMove(
-                tourney_unary_pb2.MoveRequest(
+                unary_pb2.SubmitMoveRequest(
                     match_id=match_id,
                     round_number=round_num,
                     move=move
@@ -72,7 +77,7 @@ class UnaryClient:
             while result is None or result.status == "PENDING":
                 poll_attempts += 1
                 result = self.stub.CheckRoundResult(
-                    tourney_unary_pb2.ResultRequest(
+                    unary_pb2.CheckRoundResultRequest(
                         match_id=match_id,
                         round_number=round_num
                     )

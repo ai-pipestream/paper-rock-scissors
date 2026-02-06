@@ -8,7 +8,7 @@ echo "Starting Unary Client: $CLIENT_NAME ($PRNG_ALGO)"
 echo "This client will poll the server for results (the painful way)"
 echo ""
 
-mvn exec:java -Dexec.mainClass="com.rickert.client.UnaryClient" \
+./gradlew run -Dquarkus.args="--unary" \
   -Dlanguage.name="$CLIENT_NAME" \
   -Dprng.algorithm="$PRNG_ALGO" \
   -Darena.host="localhost" \

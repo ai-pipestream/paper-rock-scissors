@@ -1,14 +1,14 @@
-package ai.pipestream.arena.service;
+package ai.pipestream.arena.v1.service;
 
-import ai.pipestream.arena.model.MatchStatistics;
-import ai.pipestream.arena.util.GameLogic;
-import ai.pipestream.tourney.stream.*;
+import ai.pipestream.arena.v1.model.MatchStatistics;
+import ai.pipestream.arena.v1.util.GameLogic;
+import ai.pipestream.tourney.stream.v1.*;
 import io.quarkus.grpc.GrpcService;
-import io.quarkus.hibernate.orm.panache.Panache;
+import io.quarkus.hibernate.reactive.panache.Panache;
 import io.smallrye.mutiny.Multi;
+import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.operators.multi.processors.BroadcastProcessor;
 import jakarta.inject.Singleton;
-import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
@@ -17,13 +17,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Streaming gRPC Service implementation.
- * Demonstrates the "clean" streaming approach with in-memory state management.
+ * Fully reactive using Mutiny and Hibernate Reactive.
  */
 @GrpcService
 @Singleton
-public class StreamingArenaService implements StreamingArena {
+public class StreamingArenaServiceImpl implements StreamingArenaService {
     
-    private static final Logger LOG = Logger.getLogger(StreamingArenaService.class);
+    private static final Logger LOG = Logger.getLogger(StreamingArenaServiceImpl.class);
     private static final int TOTAL_ROUNDS = 1000;
     
     // In-memory state: The connection IS the context
@@ -31,11 +31,11 @@ public class StreamingArenaService implements StreamingArena {
     private final ConcurrentHashMap<String, StreamPlayer> waitingPlayers = new ConcurrentHashMap<>();
     
     @Override
-    public Multi<GameUpdate> battle(Multi<ArenaMessage> request) {
+    public Multi<BattleResponse> battle(Multi<BattleRequest> request) {
         String connectionId = UUID.randomUUID().toString();
         LOG.infof("New streaming connection: %s", connectionId);
         
-        BroadcastProcessor<GameUpdate> processor = BroadcastProcessor.create();
+        BroadcastProcessor<BattleResponse> processor = BroadcastProcessor.create();
         StreamPlayer player = new StreamPlayer(connectionId, processor);
         
         // Process incoming messages
@@ -54,7 +54,7 @@ public class StreamingArenaService implements StreamingArena {
         return processor;
     }
     
-    private void handleClientMessage(StreamPlayer player, ArenaMessage message) {
+    private void handleClientMessage(StreamPlayer player, BattleRequest message) {
         if (message.hasHandshake()) {
             handleHandshake(player, message.getHandshake());
         } else if (message.hasMove()) {
@@ -70,7 +70,7 @@ public class StreamingArenaService implements StreamingArena {
             player.connectionId, player.languageName, player.prngAlgorithm);
         
         // Send connection confirmation
-        player.processor.onNext(GameUpdate.newBuilder()
+        player.processor.onNext(BattleResponse.newBuilder()
             .setStatus("CONNECTED")
             .build());
         
@@ -84,7 +84,7 @@ public class StreamingArenaService implements StreamingArena {
         synchronized (waitingPlayers) {
             if (!waitingPlayers.isEmpty()) {
                 // Get first waiting player
-                String waitingId = waitingPlayers.keys().nextElement();
+                String waitingId = waitingPlayers.keySet().iterator().next();
                 opponent = waitingPlayers.remove(waitingId);
             } else {
                 // No opponent available, add to waiting
@@ -111,11 +111,11 @@ public class StreamingArenaService implements StreamingArena {
             matchId, playerOne.languageName, playerTwo.languageName);
         
         // Notify both players
-        playerOne.processor.onNext(GameUpdate.newBuilder()
+        playerOne.processor.onNext(BattleResponse.newBuilder()
             .setStatus("OPPONENT_FOUND: " + playerTwo.languageName)
             .build());
         
-        playerTwo.processor.onNext(GameUpdate.newBuilder()
+        playerTwo.processor.onNext(BattleResponse.newBuilder()
             .setStatus("OPPONENT_FOUND: " + playerOne.languageName)
             .build());
         
@@ -139,11 +139,11 @@ public class StreamingArenaService implements StreamingArena {
             .setRoundId(match.currentRound)
             .build();
         
-        match.playerOne.processor.onNext(GameUpdate.newBuilder()
+        match.playerOne.processor.onNext(BattleResponse.newBuilder()
             .setTrigger(trigger)
             .build());
         
-        match.playerTwo.processor.onNext(GameUpdate.newBuilder()
+        match.playerTwo.processor.onNext(BattleResponse.newBuilder()
             .setTrigger(trigger)
             .build());
     }
@@ -218,11 +218,11 @@ public class StreamingArenaService implements StreamingArena {
             .setOutcome(GameLogic.outcomeForPlayer(outcome, false))
             .build();
         
-        match.playerOne.processor.onNext(GameUpdate.newBuilder()
+        match.playerOne.processor.onNext(BattleResponse.newBuilder()
             .setResult(resultP1)
             .build());
         
-        match.playerTwo.processor.onNext(GameUpdate.newBuilder()
+        match.playerTwo.processor.onNext(BattleResponse.newBuilder()
             .setResult(resultP2)
             .build());
         
@@ -242,16 +242,19 @@ public class StreamingArenaService implements StreamingArena {
             match.stats.ties, durationMillis);
         
         // Send completion message
-        match.playerOne.processor.onNext(GameUpdate.newBuilder()
+        match.playerOne.processor.onNext(BattleResponse.newBuilder()
             .setStatus("MATCH_COMPLETE")
             .build());
         
-        match.playerTwo.processor.onNext(GameUpdate.newBuilder()
+        match.playerTwo.processor.onNext(BattleResponse.newBuilder()
             .setStatus("MATCH_COMPLETE")
             .build());
         
-        // Save statistics to database
-        saveStreamingStatistics(match, durationMillis);
+        // Save statistics to database (Reactive)
+        saveStreamingStatistics(match, durationMillis).subscribe().with(
+            v -> LOG.info("Streaming match stats saved successfully"),
+            e -> LOG.errorf("Failed to save statistics: %s", e.getMessage())
+        );
         
         // Cleanup
         activeMatches.remove(match.matchId);
@@ -259,52 +262,39 @@ public class StreamingArenaService implements StreamingArena {
         match.playerTwo.processor.onComplete();
     }
     
-    private void saveStreamingStatistics(StreamMatch match, long durationMillis) {
-        try {
-            Panache.getEntityManager().getTransaction().begin();
-            
-            MatchStatistics stats = new MatchStatistics();
-            stats.matchId = match.matchId;
-            stats.matchType = "STREAMING";
-            stats.playerOneName = match.playerOne.languageName + " (" + match.playerOne.prngAlgorithm + ")";
-            stats.playerTwoName = match.playerTwo.languageName + " (" + match.playerTwo.prngAlgorithm + ")";
-            
-            stats.playerOneRocks = match.stats.playerOneStats.rocks;
-            stats.playerOnePapers = match.stats.playerOneStats.papers;
-            stats.playerOneScissors = match.stats.playerOneStats.scissors;
-            stats.playerOneWins = match.stats.playerOneStats.wins;
-            
-            stats.playerTwoRocks = match.stats.playerTwoStats.rocks;
-            stats.playerTwoPapers = match.stats.playerTwoStats.papers;
-            stats.playerTwoScissors = match.stats.playerTwoStats.scissors;
-            stats.playerTwoWins = match.stats.playerTwoStats.wins;
-            
-            stats.ties = match.stats.ties;
-            stats.totalRounds = TOTAL_ROUNDS;
-            stats.durationMillis = durationMillis;
-            stats.roundsPerSecond = (TOTAL_ROUNDS * 1000.0) / durationMillis;
-            stats.databaseIops = 1L; // Only one write for the entire match
-            stats.createdAt = Instant.now();
-            
-            stats.calculateDistributions();
-            
-            // Detect seed collision (identical sequences)
-            stats.seedCollisionDetected = detectSeedCollision(match);
-            
-            LOG.infof("Streaming match stats saved: RPS=%.2f, P1 Bias=%.2f%%, P2 Bias=%.2f%%",
-                stats.roundsPerSecond, stats.playerOneBias, stats.playerTwoBias);
-            
-            stats.persist();
-            
-            Panache.getEntityManager().getTransaction().commit();
-        } catch (Exception e) {
-            LOG.errorf("Failed to save statistics: %s", e.getMessage());
-            try {
-                Panache.getEntityManager().getTransaction().rollback();
-            } catch (Exception rollbackEx) {
-                // Ignore
-            }
-        }
+    private Uni<Void> saveStreamingStatistics(StreamMatch match, long durationMillis) {
+        MatchStatistics stats = new MatchStatistics();
+        stats.matchId = match.matchId;
+        stats.matchType = "STREAMING";
+        stats.playerOneName = match.playerOne.languageName + " (" + match.playerOne.prngAlgorithm + ")";
+        stats.playerTwoName = match.playerTwo.languageName + " (" + match.playerTwo.prngAlgorithm + ")";
+        
+        stats.playerOneRocks = match.stats.playerOneStats.rocks;
+        stats.playerOnePapers = match.stats.playerOneStats.papers;
+        stats.playerOneScissors = match.stats.playerOneStats.scissors;
+        stats.playerOneWins = match.stats.playerOneStats.wins;
+        
+        stats.playerTwoRocks = match.stats.playerTwoStats.rocks;
+        stats.playerTwoPapers = match.stats.playerTwoStats.papers;
+        stats.playerTwoScissors = match.stats.playerTwoStats.scissors;
+        stats.playerTwoWins = match.stats.playerTwoStats.wins;
+        
+        stats.ties = match.stats.ties;
+        stats.totalRounds = TOTAL_ROUNDS;
+        stats.durationMillis = durationMillis;
+        stats.roundsPerSecond = (TOTAL_ROUNDS * 1000.0) / durationMillis;
+        stats.databaseIops = 1L; // Only one write for the entire match
+        stats.createdAt = Instant.now();
+        
+        stats.calculateDistributions();
+        
+        // Detect seed collision (identical sequences)
+        stats.seedCollisionDetected = detectSeedCollision(match);
+        
+        LOG.infof("Streaming match stats saving: RPS=%.2f, P1 Bias=%.2f%%, P2 Bias=%.2f%%",
+            stats.roundsPerSecond, stats.playerOneBias, stats.playerTwoBias);
+        
+        return Panache.withTransaction(stats::persist).replaceWithVoid();
     }
     
     private boolean detectSeedCollision(StreamMatch match) {
@@ -334,7 +324,7 @@ public class StreamingArenaService implements StreamingArena {
                 // Notify opponent
                 StreamPlayer opponent = (player == match.playerOne) ? 
                     match.playerTwo : match.playerOne;
-                opponent.processor.onNext(GameUpdate.newBuilder()
+                opponent.processor.onNext(BattleResponse.newBuilder()
                     .setStatus("OPPONENT_DISCONNECTED")
                     .build());
                 opponent.processor.onComplete();
@@ -368,12 +358,12 @@ public class StreamingArenaService implements StreamingArena {
     
     private static class StreamPlayer {
         final String connectionId;
-        final BroadcastProcessor<GameUpdate> processor;
+        final BroadcastProcessor<BattleResponse> processor;
         String matchId;
         String languageName;
         String prngAlgorithm;
         
-        StreamPlayer(String connectionId, BroadcastProcessor<GameUpdate> processor) {
+        StreamPlayer(String connectionId, BroadcastProcessor<BattleResponse> processor) {
             this.connectionId = connectionId;
             this.processor = processor;
         }

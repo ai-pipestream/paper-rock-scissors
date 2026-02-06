@@ -8,7 +8,7 @@ echo "Starting Streaming Client: $CLIENT_NAME ($PRNG_ALGO)"
 echo "This client uses bidirectional streaming (the clean way)"
 echo ""
 
-mvn exec:java -Dexec.mainClass="com.rickert.client.StreamingClient" \
+./gradlew run -Dquarkus.args="--streaming" \
   -Dlanguage.name="$CLIENT_NAME" \
   -Dprng.algorithm="$PRNG_ALGO" \
   -Darena.host="localhost" \
