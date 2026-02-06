@@ -33,16 +33,24 @@ This project is documented through a series of technical lessons located in the 
 *   Java 17+
 *   Docker (for Dev Services)
 
-### Running the Arena
-Start the server in development mode:
+### Running the Arena Server
+Start the unified server (starts both Unary and Streaming services):
 ```bash
 ./gradlew quarkusDev
 ```
-Quarkus will automatically start a PostgreSQL container and the gRPC server on port `9000`.
+Quarkus will automatically start a PostgreSQL container and host all services on port `9000`.
 
-### Running Tests
-*   **Unit Tests:** `./gradlew test` (Fast, same-JVM tests using `@QuarkusTest`)
-*   **Integration Tests:** `./gradlew quarkusIntTest` (Tests against the packaged JAR using `@QuarkusIntegrationTest`)
+### Running Reference Clients
+While the server is running, you can test it using the provided clients:
+
+*   **Unary Client:**
+    ```bash
+    ./gradlew run -PmainClass=ai.pipestream.client.v1.UnaryClient
+    ```
+*   **Streaming Client:**
+    ```bash
+    ./gradlew run -PmainClass=ai.pipestream.client.v1.StreamingClient
+    ```
 
 ## 🏗 Project Structure
 

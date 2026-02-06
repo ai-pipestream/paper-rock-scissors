@@ -22,5 +22,11 @@ We use the `@WithTransaction` annotation on gRPC service methods. This:
 ## Configuration
 The project uses `quarkus-reactive-pg-client`. Unlike JDBC, there is no `url` starting with `jdbc:`. Instead, we use `quarkus.datasource.reactive.url`.
 
+### The JDBC Driver "Co-existence"
+Even in a purely reactive project, we include `io.quarkus:quarkus-jdbc-postgresql`. This is a Quarkus best practice for **Dev Services**:
+1.  **Container Lifecycle:** The JDBC extension provides mature Testcontainers support for PostgreSQL.
+2.  **Build Stability:** It satisfies extensions (like Agroal) that might be pulled in transitively and expect a JDBC driver to be present during the augmentation phase.
+3.  **Unified Management:** Dev Services will start a **single** container and provide both reactive and JDBC connection details to the application.
+
 ## Key Difference
 In Hibernate Reactive, you **must** chain your database operations. If you call `persist()` and don't subscribe to (or chain) the resulting `Uni`, the write will **never happen**.

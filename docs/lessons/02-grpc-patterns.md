@@ -18,8 +18,12 @@ Implemented in `StreamingArenaServiceImpl.java`.
 *   **Pros:** Real-time, ultra-low latency, the connection *is* the context.
 *   **Cons:** More complex state management (in-memory), requires long-lived connections.
 
-## The "Unified" Server
-We use `quarkus.grpc.server.use-separate-server=false`. This allows gRPC to run on the same port as the HTTP server (using HTTP/2), simplifying networking and firewall configuration.
+## The Unified Server Architecture
+In this project, we use a single Quarkus application instance to serve all gRPC services. We do **not** run multiple separate servers for different patterns.
+
+*   **Configuration:** We use `quarkus.grpc.server.use-separate-server=false`.
+*   **Result:** Both `UnaryArenaService` and `StreamingArenaService` are hosted on the same JVM, sharing the same port (`9000` by default) and the same database connection pool.
+*   **Clients:** The project includes separate Java classes for testing the Unary and Streaming patterns (`UnaryClient` and `StreamingClient`), but these are strictly client-side tools.
 
 ## Mutiny Stubs
 Quarkus generates "Mutiny" stubs for every service. In this project, we prefer these over the standard gRPC `StreamObserver` API because they integrate seamlessly with our reactive database and business logic.
