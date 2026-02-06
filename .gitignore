@@ -53,3 +53,35 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+*.egg-info/
+dist/
+*.egg
+
+# Go
+clients/go/unary_client
+clients/go/streaming_client
+*.exe
+*.test
+*.prof
+
+# Generated files
+clients/python/*_pb2.py
+clients/python/*_pb2_grpc.py
+clients/go/pb/
+
+# Docker
+*.tar.gz
