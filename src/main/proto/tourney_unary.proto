@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package tourney.unary;
+
+option java_package = "com.rickert.tourney.unary";
+option java_multiple_files = true;
+
+// The "Heavy" Service: Stateless and Database-Dependent
+service UnaryArena {
+  // Step 1: Client registers to play. Returns a match_id.
+  rpc Register (RegistrationRequest) returns (RegistrationResponse);
+
+  // Step 2: Client submits a move. 
+  // The Server will likely return "WAITING" if the opponent hasn't moved.
+  rpc SubmitMove (MoveRequest) returns (MoveResponse);
+
+  // Step 3: Client must POLL this repeatedly to see if they won the round.
+  // This is the "Latency Tax."
+  rpc CheckRoundResult (ResultRequest) returns (ResultResponse);
+}
+
+message RegistrationRequest {
+  string language_name = 1; // e.g., "Java-21", "Python-3.11"
+  string prng_algorithm = 2; // e.g., "L64X128MixRandom"
+}
+
+message RegistrationResponse {
+  string match_id = 1;      // The "Context Key"
+  string opponent_name = 2;
+  string status = 3;        // "WAITING_FOR_OPPONENT" or "READY"
+}
+
+message MoveRequest {
+  string match_id = 1;      // REQUIRED: Context lookup
+  int32 round_number = 2;   // REQUIRED: State sync
+  int32 move = 3;           // 0=Rock, 1=Paper, 2=Scissors
+}
+
+message MoveResponse {
+  string status = 1;        // "ACCEPTED", "INVALID_TURN", "GAME_OVER"
+}
+
+message ResultRequest {
+  string match_id = 1;
+  int32 round_number = 2;
+}
+
+message ResultResponse {
+  string status = 1;        // "PENDING", "COMPLETE"
+  int32 opponent_move = 2;  
+  string outcome = 3;       // "WIN", "LOSS", "TIE"
+}

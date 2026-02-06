@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package tourney.stream;
+
+option java_package = "com.rickert.tourney.stream";
+option java_multiple_files = true;
+
+// The "Clean" Service: Stateful and In-Memory
+service StreamingArena {
+  // BiDi Streaming: The connection IS the match state.
+  // The Judge sends a "Pulse" (trigger), the Client sends a "Move".
+  rpc Battle (stream ArenaMessage) returns (stream GameUpdate);
+}
+
+// One message type to rule them all (Polymorphism via Oneof)
+message ArenaMessage {
+  oneof payload {
+    Handshake handshake = 1;
+    Move move = 2;
+  }
+}
+
+message Handshake {
+  string language_name = 1;
+  string prng_algorithm = 2;
+}
+
+message Move {
+  int32 move = 1; // 0=Rock, 1=Paper, 2=Scissors
+}
+
+// Server responses
+message GameUpdate {
+  oneof payload {
+    string status = 1;       // "CONNECTED", "OPPONENT_FOUND"
+    RequestMove trigger = 2; // The "Pulse" asking for a move
+    RoundResult result = 3;  // Immediate feedback
+  }
+}
+
+message RequestMove {
+  int32 round_id = 1;
+}
+
+message RoundResult {
+  int32 round_id = 1;
+  int32 opponent_move = 2;
+  string outcome = 3;      // "WIN", "LOSS", "TIE"
+}
