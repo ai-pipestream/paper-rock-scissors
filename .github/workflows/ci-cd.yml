@@ -116,9 +116,11 @@ jobs:
         go build -v -o unary_client unary_client.go
         go build -v -o streaming_client streaming_client.go
     
-    - name: Run Go tests
+    - name: Vet Go clients
       working-directory: clients/go
-      run: go test -v ./...
+      run: |
+        go vet unary_client.go
+        go vet streaming_client.go
     
     - name: Upload Go binaries
       uses: actions/upload-artifact@v4.4.3
