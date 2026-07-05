@@ -2,10 +2,10 @@ module github.com/ai-pipestream/paper-rock-scissors/clients/go
 
 go 1.24.0
 
-toolchain go1.24.12
+toolchain go1.26.4
 
 require (
-	google.golang.org/grpc v1.78.0
+	google.golang.org/grpc v1.82.0
 	google.golang.org/protobuf v1.36.11
 )
 
