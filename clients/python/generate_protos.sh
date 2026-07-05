@@ -1,7 +1,7 @@
 #!/bin/bash
 # Generate Python gRPC stubs from proto files
 
-PROTO_DIR="../../src/main/proto"
+PROTO_DIR="../../common/src/main/proto"
 OUT_DIR="."
 
 python3 -m grpc_tools.protoc \

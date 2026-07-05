@@ -1,7 +1,7 @@
 #!/bin/bash
 # Generate Go gRPC stubs from proto files
 
-PROTO_DIR="../../src/main/proto"
+PROTO_DIR="../../common/src/main/proto"
 
 # Generate for unary
 protoc \

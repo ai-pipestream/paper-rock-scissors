@@ -96,10 +96,16 @@ func (c *UnaryClient) Play() error {
 		}
 
 		// Step 3: Poll for result (THE PAINFUL PART)
+		// Bounded so a wedged round fails loudly instead of spinning forever
+		// (~20s at 10ms; a healthy round resolves in a handful of polls).
+		const maxPolls = 2000
 		pollAttempts := 0
 		var result *pb.CheckRoundResultResponse
 		for {
 			pollAttempts++
+			if pollAttempts > maxPolls {
+				return fmt.Errorf("round %d never completed after %d polls", round, pollAttempts)
+			}
 			result, err = c.client.CheckRoundResult(ctx, &pb.CheckRoundResultRequest{
 				MatchId:     matchID,
 				RoundNumber: round,

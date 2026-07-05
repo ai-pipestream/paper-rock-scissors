@@ -388,6 +388,8 @@ flowchart TB
 - **Not a silver bullet for CPU-bound work.** Virtual threads help with I/O-bound concurrency. For CPU-bound parallelism, they offer no advantage over a properly-sized thread pool.
 - **False sense of simplicity.** Developers may assume they can ignore concurrency concerns entirely, but shared mutable state still requires synchronization — virtual threads don't eliminate data races.
 
+> 🔬 **This isn't hypothetical here.** This repo implements the *entire arena a second time* on virtual threads (the [`vt-server`](../../vt-server) module) so you can diff it against the reactive [`mutiny-server`](../../mutiny-server) line by line. See **[Lesson 6: Virtual Threads vs Reactive](./06-virtual-threads-vs-reactive.md)** for the head-to-head.
+
 ---
 
 ### 7. Structured Concurrency

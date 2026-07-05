@@ -1,0 +1,21 @@
+// Shared module: pure game logic (no framework deps) + the proto contracts.
+//
+// The .proto files live here in src/main/proto but are ALSO packaged into the jar
+// as resources, so each Quarkus server can generate its own gRPC stubs from them
+// via `quarkus.generate-code.grpc.scan-for-proto=ai.pipestream:common`
+// (see each server's application.properties). Keeping the protos in the jar — rather
+// than pre-generated classes — lets Quarkus produce optimized, Mutiny-flavored or
+// blocking stubs per server.
+plugins {
+    id 'java-library'
+}
+
+sourceSets {
+    main {
+        // Package the proto contracts into the jar so downstream Quarkus modules
+        // can scan-for-proto against this artifact.
+        resources {
+            srcDir 'src/main/proto'
+        }
+    }
+}

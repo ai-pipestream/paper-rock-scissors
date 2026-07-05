@@ -72,17 +72,24 @@ class UnaryClient:
                 continue
             
             # Step 3: Poll for result (THE PAINFUL PART)
+            # Bounded so a wedged round fails loudly instead of spinning forever
+            # (~20s at 10ms; a healthy round resolves in a handful of polls).
+            MAX_POLLS = 2000
             result = None
             poll_attempts = 0
             while result is None or result.status == "PENDING":
                 poll_attempts += 1
+                if poll_attempts > MAX_POLLS:
+                    raise RuntimeError(
+                        f"Round {round_num} never completed after {poll_attempts} polls"
+                    )
                 result = self.stub.CheckRoundResult(
                     unary_pb2.CheckRoundResultRequest(
                         match_id=match_id,
                         round_number=round_num
                     )
                 )
-                
+
                 if result.status == "PENDING":
                     time.sleep(0.01)  # Polling delay
             

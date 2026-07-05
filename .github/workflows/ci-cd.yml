@@ -8,68 +8,80 @@ on:
 
 jobs:
   java-build:
-    name: Build and Test Java Server
+    name: Build and Test Java Servers
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Set up JDK 17
+
+    # Java 21: the :vt-server module uses virtual threads (Project Loom), which
+    # require 21+. Both servers share the toolchain.
+    - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
         cache: gradle
-    
+
     - name: Make gradlew executable
       run: chmod +x gradlew
-    
+
     - name: Build with Gradle
       run: ./gradlew clean build -x test
-    
+
     - name: Run tests
       run: ./gradlew test
-    
-    - name: Build Quarkus app
-      run: ./gradlew quarkusBuild
-    
-    - name: Upload Quarkus app artifact
+
+    # Multi-module: each server produces its own build/quarkus-app.
+    - name: Build both Quarkus apps
+      run: ./gradlew :mutiny-server:quarkusBuild :vt-server:quarkusBuild
+
+    - name: Upload mutiny-server app
       uses: https://code.forgejo.org/forgejo/upload-artifact@v4
       with:
-        name: quarkus-app
-        path: build/quarkus-app/
+        name: quarkus-app-mutiny
+        path: mutiny-server/build/quarkus-app/
+        retention-days: 7
+
+    - name: Upload vt-server app
+      uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+      with:
+        name: quarkus-app-vt
+        path: vt-server/build/quarkus-app/
         retention-days: 7
 
   python-clients:
     name: Build and Test Python Clients
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-        cache: 'pip'
-        cache-dependency-path: clients/python/requirements.txt
-    
+
+    # The rokkon-ci runner image ships Python 3.14 but no pip/venv and no
+    # lsb_release (which breaks actions/setup-python). Use the system Python in a
+    # venv instead; grpcio/grpcio-tools ship 3.14 wheels, so this is wheels-only.
+    - name: Set up Python venv
+      run: |
+        apt-get update -qq && apt-get install -y -qq python3-venv
+        python3 -m venv "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+
     - name: Install dependencies
       working-directory: clients/python
       run: |
         pip install -r requirements.txt
-    
+
     - name: Generate gRPC stubs
       working-directory: clients/python
       run: |
         ./generate_protos.sh
-    
+
     - name: Validate Python syntax
       working-directory: clients/python
       run: |
         python3 -m py_compile unary_client.py
         python3 -m py_compile streaming_client.py
-    
+
     - name: Upload Python clients
       uses: https://code.forgejo.org/forgejo/upload-artifact@v4
       with:
@@ -80,48 +92,48 @@ jobs:
   go-clients:
     name: Build and Test Go Clients
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
         cache: true
         cache-dependency-path: clients/go/go.sum
-    
+
     - name: Install protoc
       run: |
         wget -q https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-x86_64.zip
         unzip -q protoc-25.1-linux-x86_64.zip -d $HOME/.local
         echo "$HOME/.local/bin" >> $GITHUB_PATH
-    
+
     - name: Install Go protoc plugins
       run: |
         go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
         go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-    
+
     - name: Generate gRPC stubs
       working-directory: clients/go
       run: ./generate_protos.sh
-    
+
     - name: Get dependencies
       working-directory: clients/go
       run: go mod download
-    
+
     - name: Build Go clients
       working-directory: clients/go
       run: |
         go build -v -o unary_client unary_client.go
         go build -v -o streaming_client streaming_client.go
-    
+
     - name: Vet Go clients
       working-directory: clients/go
       run: |
         go vet unary_client.go
         go vet streaming_client.go
-    
+
     - name: Upload Go binaries
       uses: https://code.forgejo.org/forgejo/upload-artifact@v4
       with:
@@ -132,7 +144,7 @@ jobs:
         retention-days: 7
 
   integration-test:
-    name: Integration Tests
+    name: Integration Tests (both servers)
     runs-on: ubuntu-latest
     needs: [java-build, python-clients, go-clients]
 
@@ -154,28 +166,37 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up JDK 17
+    - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'temurin'
         cache: gradle
 
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
+    # See java-build note: system Python in a venv (setup-python breaks on the
+    # runner image's missing lsb_release).
+    - name: Set up Python venv
+      run: |
+        apt-get update -qq && apt-get install -y -qq python3-venv
+        python3 -m venv "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
 
-    - name: Download Java artifact
+    - name: Download mutiny-server app
       uses: https://code.forgejo.org/forgejo/download-artifact@v4
       with:
-        name: quarkus-app
-        path: build/quarkus-app/
+        name: quarkus-app-mutiny
+        path: mutiny-server/build/quarkus-app/
+
+    - name: Download vt-server app
+      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      with:
+        name: quarkus-app-vt
+        path: vt-server/build/quarkus-app/
 
     - name: Download Python clients
       uses: https://code.forgejo.org/forgejo/download-artifact@v4
@@ -191,91 +212,120 @@ jobs:
 
     - name: Make binaries executable
       run: |
-        chmod +x clients/go/unary_client
-        chmod +x clients/go/streaming_client
-        chmod +x clients/python/unary_client.py
-        chmod +x clients/python/streaming_client.py
+        chmod +x clients/go/unary_client clients/go/streaming_client
+        chmod +x clients/python/unary_client.py clients/python/streaming_client.py
 
     - name: Install Python dependencies
       working-directory: clients/python
       run: pip install -r requirements.txt
 
-    - name: Start Quarkus server in background
+    # Both servers are wire-compatible with the same clients — prove it by running
+    # the identical client suite against each in turn. Prod profile points the
+    # datasource at the postgres service (reactive URL for mutiny, JDBC for vt).
+    - name: Run client suite against both servers
+      timeout-minutes: 8
+      # The job runs in a container, so the postgres service is reached by its
+      # service name, not localhost. Override the datasource host for both jars
+      # (mutiny reads the reactive URL, vt reads the JDBC URL).
+      env:
+        QUARKUS_DATASOURCE_USERNAME: quarkus
+        QUARKUS_DATASOURCE_PASSWORD: quarkus
+        QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://postgres:5432/arena
+        QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/arena
+        # Short match so a full run-to-completion is a couple of seconds in CI.
+        ARENA_TOTAL_ROUNDS: "20"
       run: |
-        java -jar build/quarkus-app/quarkus-run.jar &
-        echo $! > server.pid
-        # Wait for server to start
-        for i in $(seq 1 30); do
-          if curl -so /dev/null -w '%{http_code}' http://localhost:8080/ 2>/dev/null | grep -qE '(200|404)'; then
-            echo "Server is ready"
-            break
+        set -e
+        # For each server: boot it, then play a FULL match to completion with each
+        # client language. The client pair is staggered (first registers and waits,
+        # the second joins). With ARENA_TOTAL_ROUNDS=20 a full match is a couple of
+        # seconds; the timeout is only a safety net. Both matches must finish
+        # server-side (asserted via the "completed:" log line) — that's the end-to-
+        # end proof: boot + gRPC + DB + the whole round protocol run to the end.
+        run_suite() {
+          local name="$1" jar="$2"
+          echo "::group::Testing the '$name' arena"
+          java -jar "$jar" > "server-$name.log" 2>&1 &
+          local pid=$!
+          local ready=0
+          for i in $(seq 1 30); do
+            if curl -so /dev/null -w '%{http_code}' http://localhost:8080/ 2>/dev/null | grep -qE '(200|404)'; then
+              ready=1; echo "$name server is ready"; break
+            fi
+            echo "Waiting for $name server... ($i/30)"; sleep 2
+          done
+          if [ "$ready" != "1" ]; then echo "$name server failed to start"; cat "server-$name.log"; kill $pid || true; exit 1; fi
+
+          ( cd clients/python
+            timeout 90 bash -c '
+              python3 unary_client.py --host localhost --port 8080 &
+              sleep 1
+              python3 unary_client.py --host localhost --port 8080 &
+              wait' )
+
+          ( cd clients/go
+            timeout 90 bash -c '
+              ./unary_client -host localhost -port 8080 &
+              sleep 1
+              ./unary_client -host localhost -port 8080 &
+              wait' )
+
+          # Both the Python and Go matches must have run to completion.
+          local completed
+          completed=$(grep -c "completed:" "server-$name.log" || true)
+          if [ "${completed:-0}" -lt 2 ]; then
+            echo "FAIL: $name expected 2 completed matches, saw ${completed:-0}"
+            cat "server-$name.log"; kill $pid || true; exit 1
           fi
-          echo "Waiting for server... ($i/30)"
+          echo "OK: $name arena ran $completed matches to completion"
+          kill $pid || true
           sleep 2
-        done
-        # Verify the HTTP/gRPC port is listening
-        timeout 5 bash -c 'cat < /dev/tcp/localhost/8080' 2>/dev/null || true
-    
-    - name: Test Python Unary Client
-      timeout-minutes: 2
-      run: |
-        cd clients/python
-        python3 unary_client.py --host localhost --port 8080 &
-        CLIENT1_PID=$!
-        sleep 1
-        python3 unary_client.py --host localhost --port 8080 &
-        CLIENT2_PID=$!
-        wait $CLIENT1_PID
-        wait $CLIENT2_PID
-    
-    - name: Test Go Unary Client
-      timeout-minutes: 2
-      run: |
-        cd clients/go
-        ./unary_client -host localhost -port 8080 &
-        CLIENT1_PID=$!
-        sleep 1
-        ./unary_client -host localhost -port 8080 &
-        CLIENT2_PID=$!
-        wait $CLIENT1_PID
-        wait $CLIENT2_PID
-    
-    - name: Stop server
-      if: always()
-      run: |
-        if [ -f server.pid ]; then
-          kill $(cat server.pid) || true
-        fi
+          echo "::endgroup::"
+        }
+        run_suite mutiny mutiny-server/build/quarkus-app/quarkus-run.jar
+        run_suite vt     vt-server/build/quarkus-app/quarkus-run.jar
 
   docker-build:
     name: Build Docker Images
     runs-on: ubuntu-latest
     needs: [java-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-    
-    - name: Download Java artifact
+
+    - name: Download mutiny-server app
       uses: https://code.forgejo.org/forgejo/download-artifact@v4
       with:
-        name: quarkus-app
-        path: build/quarkus-app/
-    
-    - name: Build Docker image
+        name: quarkus-app-mutiny
+        path: mutiny-server/build/quarkus-app/
+
+    - name: Download vt-server app
+      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      with:
+        name: quarkus-app-vt
+        path: vt-server/build/quarkus-app/
+
+    # Each module is its own build context; the Dockerfile COPYs build/quarkus-app/.
+    - name: Build mutiny-server image
+      run: docker build -f mutiny-server/src/main/docker/Dockerfile.jvm -t paper-rock-scissors-mutiny:latest mutiny-server
+
+    - name: Build vt-server image
+      run: docker build -f vt-server/src/main/docker/Dockerfile.jvm -t paper-rock-scissors-vt:latest vt-server
+
+    - name: Save Docker images
       run: |
-        docker build -f src/main/docker/Dockerfile.jvm -t paper-rock-scissors-arena:latest .
-    
-    - name: Save Docker image
-      run: |
-        docker save paper-rock-scissors-arena:latest | gzip > paper-rock-scissors-arena.tar.gz
-    
-    - name: Upload Docker image
+        docker save paper-rock-scissors-mutiny:latest | gzip > paper-rock-scissors-mutiny.tar.gz
+        docker save paper-rock-scissors-vt:latest | gzip > paper-rock-scissors-vt.tar.gz
+
+    - name: Upload Docker images
       uses: https://code.forgejo.org/forgejo/upload-artifact@v4
       with:
-        name: docker-image
-        path: paper-rock-scissors-arena.tar.gz
+        name: docker-images
+        path: |
+          paper-rock-scissors-mutiny.tar.gz
+          paper-rock-scissors-vt.tar.gz
         retention-days: 7

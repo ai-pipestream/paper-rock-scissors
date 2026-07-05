@@ -1,0 +1,57 @@
+// Reactive arena: Mutiny + Hibernate Reactive Panache.
+// Java 21, encoding and -parameters come from the root build.
+plugins {
+    id 'io.quarkus'
+    id 'idea'
+}
+
+dependencies {
+    implementation enforcedPlatform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}")
+
+    // Shared: pure GameLogic + the proto contracts (scanned for gRPC codegen,
+    // see quarkus.generate-code.grpc.scan-for-proto in application.properties).
+    implementation project(':common')
+
+    // gRPC
+    implementation 'io.quarkus:quarkus-grpc'
+
+    // Reactive Database. Hibernate Reactive runs the queries over the reactive PG
+    // client; quarkus-jdbc-postgresql is kept because Hibernate ORM performs the
+    // schema DDL (drop-and-create) over JDBC. Both datasources therefore need a URL
+    // (see %prod in application.properties, and the CI integration job).
+    implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
+    implementation 'io.quarkus:quarkus-reactive-pg-client'
+    implementation 'io.quarkus:quarkus-jdbc-postgresql'
+
+    // Configuration & Logging
+    implementation 'io.quarkus:quarkus-config-yaml'
+    implementation 'io.quarkus:quarkus-logging-json'
+
+    // Core
+    implementation 'io.quarkus:quarkus-arc'
+
+    // Testing
+    testImplementation 'io.quarkus:quarkus-junit5'
+    testImplementation 'io.smallrye.reactive:mutiny-test-utils'
+}
+
+test {
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+}
+
+// Help IntelliJ/IDEA recognize integration tests and generated sources
+idea {
+    module {
+        testSources.from(file('src/integrationTest/java'))
+
+        def genProtoJava = file("$projectDir/build/generated/source/proto/main/java")
+        def genProtoGrpc = file("$projectDir/build/generated/source/proto/main/grpc")
+        def genAltGrpc = file("$projectDir/build/generated-sources/grpc")
+        def genAltProtoJava = file("$projectDir/build/generated-sources/protobuf/java")
+
+        [genProtoJava, genProtoGrpc, genAltGrpc, genAltProtoJava].each { d ->
+            sourceDirs += d
+            generatedSourceDirs += d
+        }
+    }
+}

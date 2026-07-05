@@ -30,10 +30,10 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # Copy proto files and generate stubs
-COPY src/main/proto/ /build/proto/
+COPY common/src/main/proto/ /build/proto/
 COPY clients/go/generate_protos.sh .
 RUN chmod +x generate_protos.sh && \
-    sed -i 's|../../src/main/proto|/build/proto|g' generate_protos.sh && \
+    sed -i 's|../../common/src/main/proto|/build/proto|g' generate_protos.sh && \
     export PATH=$PATH:$(go env GOPATH)/bin && \
     ./generate_protos.sh
 

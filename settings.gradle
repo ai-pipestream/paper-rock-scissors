@@ -9,3 +9,11 @@ pluginManagement {
     }
 }
 rootProject.name='paper-rock-scissors-arena'
+
+// Two implementations of the same arena, side by side:
+//   :mutiny-server — reactive (Mutiny + Hibernate Reactive), the original design
+//   :vt-server     — virtual threads (@RunOnVirtualThread + blocking Hibernate ORM)
+// Both share protos and pure game logic from :common. See docs/lessons/06-*.
+include 'common'
+include 'mutiny-server'
+include 'vt-server'

@@ -19,7 +19,7 @@ COPY clients/python/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy proto files
-COPY src/main/proto/ /app/proto/
+COPY common/src/main/proto/ /app/proto/
 
 # Copy client scripts
 COPY clients/python/*.py .
@@ -27,7 +27,7 @@ COPY clients/python/generate_protos.sh .
 
 # Generate gRPC stubs
 RUN chmod +x generate_protos.sh && \
-    sed -i 's|../../src/main/proto|/app/proto|g' generate_protos.sh && \
+    sed -i 's|../../common/src/main/proto|/app/proto|g' generate_protos.sh && \
     ./generate_protos.sh
 
 # Make clients executable

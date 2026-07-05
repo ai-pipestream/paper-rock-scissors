@@ -1,71 +1,34 @@
-plugins {
-    id 'java'
-    id 'io.quarkus'
-    id 'idea'
+// Root build for the Paper-Rock-Scissors Arena.
+//
+// This is a multi-module project so the same arena can be shown two ways:
+//   :mutiny-server — reactive (Mutiny + Hibernate Reactive)
+//   :vt-server     — virtual threads (@RunOnVirtualThread + blocking Hibernate ORM)
+//   :common        — protos + pure game logic shared by both
+//
+// Java 21 is required across the board: virtual threads (Project Loom) are only
+// available on 21+. Mutiny runs happily on 21, so both variants share the toolchain.
+
+allprojects {
+    group = 'ai.pipestream'
+    version = '1.0.0-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
 }
 
-repositories {
-    mavenCentral()
-    mavenLocal()
-}
+subprojects {
+    apply plugin: 'java'
 
-dependencies {
-    implementation enforcedPlatform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}")
-    
-    // gRPC
-    implementation 'io.quarkus:quarkus-grpc'
-    
-    // Reactive Database
-    implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
-    implementation 'io.quarkus:quarkus-reactive-pg-client'
-    implementation 'io.quarkus:quarkus-jdbc-postgresql'
-    
-    // Configuration & Logging
-    implementation 'io.quarkus:quarkus-config-yaml'
-    implementation 'io.quarkus:quarkus-logging-json'
-    
-    // Core
-    implementation 'io.quarkus:quarkus-arc'
-    
-    // Testing
-    testImplementation 'io.quarkus:quarkus-junit'
-    testImplementation 'io.smallrye.reactive:mutiny-test-utils'
-}
+    java {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
 
-group = 'ai.pipestream'
-version = '1.0.0-SNAPSHOT'
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-}
-
-compileJava {
-    options.encoding = 'UTF-8'
-    options.compilerArgs << '-parameters'
-}
-
-compileTestJava {
-    options.encoding = 'UTF-8'
-}
-
-test {
-    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
-}
-
-// Help IntelliJ/IDEA recognize integration tests and generated sources
-idea {
-    module {
-        testSources.from(file('src/integrationTest/java'))
-        
-        def genProtoJava = file("$projectDir/build/generated/source/proto/main/java")
-        def genProtoGrpc = file("$projectDir/build/generated/source/proto/main/grpc")
-        def genAltGrpc = file("$projectDir/build/generated-sources/grpc")
-        def genAltProtoJava = file("$projectDir/build/generated-sources/protobuf/java")
-
-        [genProtoJava, genProtoGrpc, genAltGrpc, genAltProtoJava].each { d ->
-            sourceDirs += d
-            generatedSourceDirs += d
-        }
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        // -parameters keeps parameter names for gRPC/Quarkus reflection.
+        options.compilerArgs << '-parameters'
     }
 }
