@@ -10,7 +10,7 @@
 # Run the streaming client:
 # docker run --rm --network host paper-rock-scissors-python-client python3 streaming_client.py
 ###
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
