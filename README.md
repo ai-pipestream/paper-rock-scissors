@@ -65,6 +65,44 @@ While the server is running, you can test it using the provided clients:
     ./gradlew run -PmainClass=ai.pipestream.client.v1.StreamingClient
     ```
 
+## 🏆 Language tournament — whose PRNG is actually random?
+
+A fun exercise: pit **Go, Python, and Java** against each other over many streaming
+matches and see whether each language's default PRNG produces a uniform move
+distribution. In rock-paper-scissors two random players win ~50/50 regardless of
+bias, so **win rate is a sanity check** — the real signal is each language's
+rock/paper/scissors split and how far its most-frequent move sits from a uniform
+33.3% (`bias%`). The streaming server records per-player move counts every match;
+`StreamingArenaService.GetArenaResults` aggregates them by language.
+
+```bash
+# 1. Start the arena with a small round count for a fast run (Dev Services PostgreSQL):
+ARENA_TOTAL_ROUNDS=200 ./run-server.sh vt        # gRPC on HTTP port 8080
+
+# 2. Build the clients once:
+(cd clients/go && ./generate_protos.sh && go build -o streaming_client streaming_client.go)
+./gradlew :mutiny-server:quarkusBuild            # Java client (runs off the built app classpath)
+#   Python just needs grpcio + generated stubs (see clients/python/generate_protos.sh)
+
+# 3. Run the tournament — N clients per language, each playing M matches:
+tournament/run-tournament.sh --port 8080 --clients 4 --matches 1000
+```
+
+It launches equal pools of each language, lets them play (random FIFO pairing),
+then prints the leaderboard:
+
+```
+ARENA RESULTS — 684 streaming matches
+language          matches    win%   rock%  paper% scissors%   bias%        moves
+Go                    446  50.44%  34.50%  32.97%    32.53%  +1.16%        8,920
+Java                  480  49.91%  33.45%  32.65%    33.91%  +0.57%        9,600
+Python                442  49.64%  32.71%  33.13%    34.15%  +0.82%        8,840
+```
+
+Bias shrinks as the sample grows (`bias%` is roughly ±1/√moves of noise), so run
+more matches/clients to resolve sub-1% skew. `GetArenaResults` aggregates **all**
+matches in the database, so results accumulate across runs.
+
 ## 🏗 Project Structure
 
 A Gradle multi-module project so both implementations live side by side:

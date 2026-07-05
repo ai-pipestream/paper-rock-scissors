@@ -18,4 +18,10 @@ public class StreamStatsRepository {
     public void save(MatchStatistics stats) {
         stats.persist();
     }
+
+    /** Every completed streaming match, for the arena leaderboard aggregation. */
+    @Transactional
+    public java.util.List<MatchStatistics> allStreamingMatches() {
+        return MatchStatistics.list("matchType", "STREAMING");
+    }
 }

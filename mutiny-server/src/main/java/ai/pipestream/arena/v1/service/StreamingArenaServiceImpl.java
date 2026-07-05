@@ -9,9 +9,14 @@ import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.operators.multi.processors.BroadcastProcessor;
 import jakarta.inject.Singleton;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -24,7 +29,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class StreamingArenaServiceImpl implements StreamingArenaService {
     
     private static final Logger LOG = Logger.getLogger(StreamingArenaServiceImpl.class);
-    private static final int TOTAL_ROUNDS = 1000;
+
+    // Rounds per match. Default 1000; the tournament runner and CI override it
+    // (arena.total-rounds) to trade sample size for wall-clock.
+    @ConfigProperty(name = "arena.total-rounds", defaultValue = "1000")
+    int totalRounds;
     
     // In-memory state: The connection IS the context
     private final ConcurrentHashMap<String, StreamMatch> activeMatches = new ConcurrentHashMap<>();
@@ -53,7 +62,60 @@ public class StreamingArenaServiceImpl implements StreamingArenaService {
         
         return processor;
     }
-    
+
+    @Override
+    public Uni<ArenaResultsResponse> getArenaResults(ArenaResultsRequest request) {
+        // Every completed streaming match wrote one MatchStatistics row. Aggregate
+        // them by language into the leaderboard. (Read-only; fine to scan.)
+        return MatchStatistics.<MatchStatistics>list("matchType", "STREAMING").map(this::aggregate);
+    }
+
+    // Accumulator per language: [matches, roundWins, roundLosses, ties, rocks, papers, scissors].
+    private ArenaResultsResponse aggregate(List<MatchStatistics> all) {
+        Map<String, long[]> acc = new LinkedHashMap<>();
+        for (MatchStatistics s : all) {
+            credit(acc, s.playerOneLanguage, s.playerOneWins, s.playerTwoWins, s.ties,
+                    s.playerOneRocks, s.playerOnePapers, s.playerOneScissors);
+            credit(acc, s.playerTwoLanguage, s.playerTwoWins, s.playerOneWins, s.ties,
+                    s.playerTwoRocks, s.playerTwoPapers, s.playerTwoScissors);
+        }
+
+        List<LanguageResult> results = new ArrayList<>();
+        for (Map.Entry<String, long[]> e : acc.entrySet()) {
+            long[] a = e.getValue();
+            long matches = a[0], wins = a[1], losses = a[2], ties = a[3];
+            long rocks = a[4], papers = a[5], scissors = a[6];
+            long moves = rocks + papers + scissors;
+            double winRate = (wins + losses) == 0 ? 0.0 : (double) wins / (wins + losses);
+            double rockPct = moves == 0 ? 0.0 : 100.0 * rocks / moves;
+            double paperPct = moves == 0 ? 0.0 : 100.0 * papers / moves;
+            double scissorsPct = moves == 0 ? 0.0 : 100.0 * scissors / moves;
+            double bias = Math.max(rockPct, Math.max(paperPct, scissorsPct)) - (100.0 / 3.0);
+            results.add(LanguageResult.newBuilder()
+                    .setLanguage(e.getKey())
+                    .setMatchesPlayed(matches).setWins(wins).setLosses(losses).setTies(ties)
+                    .setWinRate(winRate)
+                    .setRocks(rocks).setPapers(papers).setScissors(scissors)
+                    .setRockPct(rockPct).setPaperPct(paperPct).setScissorsPct(scissorsPct)
+                    .setMoveBiasPct(bias)
+                    .build());
+        }
+        results.sort((x, y) -> Double.compare(y.getWinRate(), x.getWinRate()));
+        return ArenaResultsResponse.newBuilder()
+                .setTotalMatches(all.size())
+                .addAllLanguages(results)
+                .build();
+    }
+
+    private static void credit(Map<String, long[]> acc, String language,
+                               long wins, long losses, long ties,
+                               long rocks, long papers, long scissors) {
+        String key = (language == null || language.isEmpty()) ? "unknown" : language;
+        long[] a = acc.computeIfAbsent(key, k -> new long[7]);
+        a[0]++; a[1] += wins; a[2] += losses; a[3] += ties;
+        a[4] += rocks; a[5] += papers; a[6] += scissors;
+    }
+
     private void handleClientMessage(StreamPlayer player, BattleRequest message) {
         if (message.hasHandshake()) {
             handleHandshake(player, message.getHandshake());
@@ -124,7 +186,7 @@ public class StreamingArenaServiceImpl implements StreamingArenaService {
     }
     
     private void startNextRound(StreamMatch match) {
-        if (match.currentRound > TOTAL_ROUNDS) {
+        if (match.currentRound > totalRounds) {
             completeMatch(match);
             return;
         }
@@ -268,7 +330,9 @@ public class StreamingArenaServiceImpl implements StreamingArenaService {
         stats.matchType = "STREAMING";
         stats.playerOneName = match.playerOne.languageName + " (" + match.playerOne.prngAlgorithm + ")";
         stats.playerTwoName = match.playerTwo.languageName + " (" + match.playerTwo.prngAlgorithm + ")";
-        
+        stats.playerOneLanguage = match.playerOne.languageName;
+        stats.playerTwoLanguage = match.playerTwo.languageName;
+
         stats.playerOneRocks = match.stats.playerOneStats.rocks;
         stats.playerOnePapers = match.stats.playerOneStats.papers;
         stats.playerOneScissors = match.stats.playerOneStats.scissors;
@@ -280,9 +344,9 @@ public class StreamingArenaServiceImpl implements StreamingArenaService {
         stats.playerTwoWins = match.stats.playerTwoStats.wins;
         
         stats.ties = match.stats.ties;
-        stats.totalRounds = TOTAL_ROUNDS;
+        stats.totalRounds = totalRounds;
         stats.durationMillis = durationMillis;
-        stats.roundsPerSecond = (TOTAL_ROUNDS * 1000.0) / durationMillis;
+        stats.roundsPerSecond = (totalRounds * 1000.0) / durationMillis;
         stats.databaseIops = 1L; // Only one write for the entire match
         stats.createdAt = Instant.now();
         

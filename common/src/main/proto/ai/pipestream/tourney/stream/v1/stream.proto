@@ -11,6 +11,10 @@ service StreamingArenaService {
   // BiDi Streaming: The connection IS the match state.
   // The Judge sends a "Pulse" (trigger), the Client sends a "Move".
   rpc Battle (stream BattleRequest) returns (stream BattleResponse);
+
+  // Aggregated, language-level leaderboard across every streaming match played so
+  // far — the "who's PRNG is actually random" scoreboard.
+  rpc GetArenaResults (ArenaResultsRequest) returns (ArenaResultsResponse);
 }
 
 // One message type to rule them all (Polymorphism via Oneof)
@@ -47,4 +51,30 @@ message RoundResult {
   int32 round_id = 1;
   int32 opponent_move = 2;
   string outcome = 3;      // "WIN", "LOSS", "TIE"
+}
+
+// --- Arena results (language leaderboard) ---
+
+message ArenaResultsRequest {}
+
+message ArenaResultsResponse {
+  int64 total_matches = 1;            // distinct streaming matches aggregated
+  repeated LanguageResult languages = 2; // one row per language, best win_rate first
+}
+
+// Everything one language did, summed across every match it played.
+message LanguageResult {
+  string language = 1;
+  int64 matches_played = 2;
+  int64 wins = 3;
+  int64 losses = 4;
+  int64 ties = 5;
+  double win_rate = 6;        // wins / (wins + losses), ties excluded
+  int64 rocks = 7;
+  int64 papers = 8;
+  int64 scissors = 9;
+  double rock_pct = 10;       // share of this language's moves that were rock
+  double paper_pct = 11;
+  double scissors_pct = 12;
+  double move_bias_pct = 13;  // most-frequent move %% minus 33.33 — skew from uniform random
 }

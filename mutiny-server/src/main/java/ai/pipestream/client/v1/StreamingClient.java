@@ -39,8 +39,10 @@ public class StreamingClient {
     }
     
     public void play() throws InterruptedException {
-        LOG.infof("Streaming Client (Mutiny) starting: %s (%s)", languageName, prngAlgorithm);
-        
+        play(false);
+    }
+
+    public void play(boolean verbose) throws InterruptedException {
         CountDownLatch finishLatch = new CountDownLatch(1);
         BroadcastProcessor<BattleRequest> requestProcessor = BroadcastProcessor.create();
         
@@ -51,8 +53,8 @@ public class StreamingClient {
             update -> {
                 if (update.hasStatus()) {
                     String status = update.getStatus();
-                    LOG.info("Status: " + status);
-                    
+                    if (verbose) LOG.info("Status: " + status);
+
                     if (status.equals("MATCH_COMPLETE") || status.equals("OPPONENT_DISCONNECTED")) {
                         finishLatch.countDown();
                     }
@@ -62,7 +64,7 @@ public class StreamingClient {
                     requestProcessor.onNext(BattleRequest.newBuilder()
                         .setMove(Move.newBuilder().setMove(move).build())
                         .build());
-                } else if (update.hasResult()) {
+                } else if (update.hasResult() && verbose) {
                     RoundResult result = update.getResult();
                     if (result.getRoundId() % 100 == 0) {
                         LOG.infof("Round %d: %s", result.getRoundId(), result.getOutcome());
@@ -96,12 +98,22 @@ public class StreamingClient {
     public static void main(String[] args) {
         String host = System.getProperty("arena.host", "localhost");
         int port = Integer.parseInt(System.getProperty("arena.port", "9000"));
-        String languageName = System.getProperty("language.name", "Java-Mutiny-Streaming");
-        String prngAlgorithm = System.getProperty("prng.algorithm", "L64X128MixRandom");
-        
+        String languageName = System.getProperty("language.name", "Java");
+        String prngAlgorithm = System.getProperty("prng.algorithm", "java.util.Random");
+        int matches = Integer.parseInt(System.getProperty("matches", "1"));
+        boolean verbose = Boolean.parseBoolean(System.getProperty("verbose", "false"));
+
         StreamingClient client = new StreamingClient(host, port, languageName, prngAlgorithm);
+        System.out.printf("%s (%s): playing %d match(es)...%n", languageName, prngAlgorithm, matches);
         try {
-            client.play();
+            int step = Math.max(1, matches / 10);
+            for (int i = 0; i < matches; i++) {
+                client.play(verbose);
+                if (matches > 1 && (i + 1) % step == 0) {
+                    System.out.printf("  %s: %d/%d matches%n", languageName, i + 1, matches);
+                }
+            }
+            System.out.printf("%s done: %d matches%n", languageName, matches);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {

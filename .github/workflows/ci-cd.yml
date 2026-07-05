@@ -285,6 +285,39 @@ jobs:
         run_suite mutiny mutiny-server/build/quarkus-app/quarkus-run.jar
         run_suite vt     vt-server/build/quarkus-app/quarkus-run.jar
 
+    # Language tournament: Go, Python, and Java streaming clients competing, plus
+    # the GetArenaResults leaderboard aggregation. Tiny run — just proves the whole
+    # pipeline works and the board has all three languages.
+    - name: Language tournament smoke (Go vs Python vs Java)
+      timeout-minutes: 5
+      env:
+        QUARKUS_DATASOURCE_USERNAME: quarkus
+        QUARKUS_DATASOURCE_PASSWORD: quarkus
+        QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/arena
+        ARENA_TOTAL_ROUNDS: "10"
+      run: |
+        set -e
+        java -jar vt-server/build/quarkus-app/quarkus-run.jar > tourney-server.log 2>&1 &
+        pid=$!
+        ready=0
+        for i in $(seq 1 30); do
+          if curl -so /dev/null -w '%{http_code}' http://localhost:8080/ 2>/dev/null | grep -qE '(200|404)'; then
+            ready=1; break
+          fi
+          sleep 2
+        done
+        [ "$ready" = "1" ] || { echo "tournament server failed to start"; cat tourney-server.log; kill $pid || true; exit 1; }
+
+        out=$(tournament/run-tournament.sh --port 8080 --clients 2 --matches 2 --client-timeout 60 2>&1)
+        echo "$out"
+        kill $pid || true
+
+        echo "$out" | grep -q "ARENA RESULTS" || { echo "FAIL: no leaderboard returned"; exit 1; }
+        for lang in Go Python Java; do
+          echo "$out" | grep -qw "$lang" || { echo "FAIL: '$lang' missing from leaderboard"; exit 1; }
+        done
+        echo "OK: tournament leaderboard returned with all three languages"
+
   docker-build:
     name: Build Docker Images
     runs-on: ubuntu-latest

@@ -10,6 +10,9 @@ public class MatchStatistics extends PanacheEntity {
     public String matchType; // "STREAMING" or "UNARY"
     public String playerOneName;
     public String playerTwoName;
+    // Just the language label (from the handshake), for the arena leaderboard.
+    public String playerOneLanguage;
+    public String playerTwoLanguage;
     
     public int playerOneRocks;
     public int playerOnePapers;
