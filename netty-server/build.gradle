@@ -11,7 +11,7 @@
 // with the Quarkus-generated ones. From :common we take only the pure GameLogic.
 plugins {
     id 'application'
-    id 'com.google.protobuf' version '0.9.4'
+    id 'com.google.protobuf' version '0.10.0'
 }
 
 def grpcVersion = '1.82.1'
