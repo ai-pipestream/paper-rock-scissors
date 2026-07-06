@@ -97,13 +97,14 @@ Quarkus hosts gRPC on the **same HTTP port** as health checks (`quarkus.grpc.ser
 
 ## Make your first call (streaming)
 
-In a second terminal:
+In a second terminal, start **two** clients — a match needs a pair, and a lone client waits for an opponent:
 
 ```bash
-./run-streaming-client.sh "Lesson0-Player" "java.util.Random"
+./run-streaming-client.sh "Lesson0-Player-A" "java.util.Random" &
+./run-streaming-client.sh "Lesson0-Player-B" "SplittableRandom"
 ```
 
-The client script wraps the Java streaming client. What happens on the wire:
+The script wraps the Java streaming client. What happens on the wire (per client):
 
 ```mermaid
 sequenceDiagram

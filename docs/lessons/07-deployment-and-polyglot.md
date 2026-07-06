@@ -101,27 +101,31 @@ Each language gets typed stubs from the **same** `.proto`. Field **numbers** mat
 
 ### Running against Quarkus (port 8080)
 
+A streaming match needs **two** clients — mix languages freely, the server pairs whoever shows up:
+
 ```bash
 ./run-server.sh vt
 
-# Go
-clients/go/streaming_client -host localhost -port 8080 -language Go -prng math/rand
-
-# Python
+# Go vs Python — a cross-language match
+clients/go/streaming_client -host localhost -port 8080 -language Go -prng math/rand &
 python3 clients/python/streaming_client.py --host localhost --port 8080 --language Python
 
-# Java (from built classpath)
-./run-streaming-client.sh "Java-Capstone" "java.util.Random"
+# Java vs Go
+./run-streaming-client.sh "Java-Capstone" "java.util.Random" &
+clients/go/streaming_client -host localhost -port 8080 -language Go
 ```
 
 ### Running against netty (port 9000)
 
 ```bash
 ./run-server.sh netty
+clients/go/streaming_client -host localhost -port 9000 &
 clients/go/streaming_client -host localhost -port 9000
 ```
 
-Same client binary. Different port. Different server implementation. **Wire-identical behavior.**
+Same client binaries. Different port. Different server implementation. **Wire-identical behavior.**
+
+> The vanilla `netty-server` implements only the **streaming** service — unary clients need one of the Quarkus servers.
 
 ---
 
@@ -180,7 +184,7 @@ Fast builds. Larger image (~200 MB+). Full JVM diagnostics. Best default for mos
 ### 2. Native image (GraalVM)
 
 ```bash
-./gradlew :vt-server:build -Dquarkus.package.type=native
+./gradlew :vt-server:build -Dquarkus.native.enabled=true -Dquarkus.native.container-build=true
 
 docker build -f vt-server/src/main/docker/Dockerfile.native \
   -t arena:vt-native vt-server
@@ -251,10 +255,8 @@ Run the complete path:
 # 1. Start server
 ARENA_TOTAL_ROUNDS=100 ./run-server.sh vt
 
-# 2. Java smoke test
-./run-streaming-client.sh "Capstone-Java" "Random"
-
-# 3. Go smoke test
+# 2+3. Java vs Go smoke test (clients pair with each other)
+./run-streaming-client.sh "Capstone-Java" "Random" &
 clients/go/streaming_client -host localhost -port 8080 -language Go-Capstone
 
 # 4. Mini tournament
@@ -262,7 +264,8 @@ tournament/run-tournament.sh --port 8080 --clients 2 --matches 50
 
 # 5. Swap to netty — same Go client, port 9000
 ./run-server.sh netty
-clients/go/streaming_client -host localhost -port 9000 -language Go-Capstone
+clients/go/streaming_client -host localhost -port 9000 -language Go-Capstone &
+clients/go/streaming_client -host localhost -port 9000 -language Go-Capstone-2
 
 # 6. Diff implementations
 diff mutiny-server/.../UnaryArenaServiceImpl.java vt-server/.../UnaryArenaServiceImpl.java

@@ -192,12 +192,14 @@ Neither is wrong. `mutiny-server` exists in full — not as a straw man — beca
 # Terminal 1 — reactive
 ./run-server.sh mutiny
 
-# Terminal 2 — same client, same game
-./run-streaming-client.sh "Reactive-Player" "SplittableRandom"
+# Terminal 2 — same clients, same game (two needed to form a match)
+./run-streaming-client.sh "Reactive-1" "SplittableRandom" &
+./run-streaming-client.sh "Reactive-2" "L64X128MixRandom"
 
 # Stop, switch server
 ./run-server.sh vt
-./run-streaming-client.sh "VT-Player" "SplittableRandom"
+./run-streaming-client.sh "VT-1" "SplittableRandom" &
+./run-streaming-client.sh "VT-2" "L64X128MixRandom"
 ```
 
 Side-by-side benchmark (different HTTP ports):

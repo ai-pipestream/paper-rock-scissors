@@ -28,24 +28,40 @@ fi
 echo "Server detected on port ${PORT}"
 echo ""
 
-echo "=== Demo 1: Unary (Polling) Approach ==="
-echo "Starting two Unary clients..."
-echo ""
+# Build the Java client classpath once up front so the parallel client
+# launches below don't both kick off a Gradle build.
+if [ ! -d "mutiny-server/build/quarkus-app/app" ]; then
+    echo "Building Java client classpath (one-time) ..."
+    ./gradlew :mutiny-server:quarkusBuild -q
+    echo ""
+fi
 
-./run-unary-client.sh "Java-Unary-1" "java.util.Random" "$PORT" &
-CLIENT1_PID=$!
-sleep 2
+# The vanilla netty-server implements only the STREAMING service.
+if [ "$PORT" = "9000" ]; then
+    echo "=== Demo 1: Unary (Polling) — SKIPPED ==="
+    echo "netty-server (port 9000) only implements the streaming service."
+    echo "Run a Quarkus server (./run-server.sh vt) for the unary demo."
+    echo ""
+else
+    echo "=== Demo 1: Unary (Polling) Approach ==="
+    echo "Starting two Unary clients..."
+    echo ""
 
-./run-unary-client.sh "Java-Unary-2" "java.security.SecureRandom" "$PORT" &
-CLIENT2_PID=$!
+    ./run-unary-client.sh "Java-Unary-1" "java.util.Random" "$PORT" &
+    CLIENT1_PID=$!
+    sleep 2
 
-wait $CLIENT1_PID
-wait $CLIENT2_PID
+    ./run-unary-client.sh "Java-Unary-2" "java.security.SecureRandom" "$PORT" &
+    CLIENT2_PID=$!
 
-echo ""
-echo "Unary match completed!"
-echo ""
-sleep 3
+    wait $CLIENT1_PID
+    wait $CLIENT2_PID
+
+    echo ""
+    echo "Unary match completed!"
+    echo ""
+    sleep 3
+fi
 
 echo "=== Demo 2: Streaming (Push) Approach ==="
 echo "Starting two Streaming clients..."

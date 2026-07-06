@@ -24,11 +24,12 @@ Optional but fun later: Go 1.21+, Python 3, `protoc` for polyglot clients.
 # Terminal 1 — start the arena (virtual threads + PostgreSQL via Dev Services)
 ./run-server.sh vt
 
-# Terminal 2 — play a streaming match with the Java client
-./run-streaming-client.sh "Java-1" "java.util.Random"
+# Terminal 2 — play a streaming match (two clients; they pair with each other)
+./run-streaming-client.sh "Java-1" "java.util.Random" &
+./run-streaming-client.sh "Java-2" "SplittableRandom"
 ```
 
-You should see the server pair two clients and run 1,000 rounds. That is gRPC bidirectional streaming in action — no REST, no polling, no framework magic yet.
+You should see the server pair the two clients and run 1,000 rounds. That is gRPC bidirectional streaming in action — no REST, no polling, no framework magic yet.
 
 Try the unary path next:
 

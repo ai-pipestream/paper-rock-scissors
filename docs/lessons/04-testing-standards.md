@@ -147,14 +147,20 @@ Streaming tests are inherently async — use timeouts and concurrent collections
 
 ## Level 3: Polyglot clients — the ultimate contract test
 
-Generated Java stubs can hide proto mismatches that would break Go or Python. The CI pipeline builds all clients and runs integration tests:
+Generated Java stubs can hide proto mismatches that would break Go or Python. The CI pipeline (`.github/workflows/ci-cd.yml`) builds every client and then runs a dedicated **integration job** that starts each packaged server against a real PostgreSQL service container and plays matches with the polyglot clients:
 
 ```yaml
 # .github/workflows/ci-cd.yml (simplified)
-- run: ./gradlew test                    # Java @QuarkusTest
-- run: ./gradlew quarkusIntTest          # Java black-box
-- run: cd clients/go && ./generate_protos.sh && go build ...
-- run: cd clients/python && ./generate_protos.sh
+java-build:
+  - ./gradlew test                                          # @QuarkusTest + Dev Services
+  - ./gradlew :mutiny-server:quarkusBuild :vt-server:quarkusBuild
+go-clients:
+  - ./generate_protos.sh && go build ...
+python-clients:
+  - ./generate_protos.sh && python3 -m py_compile ...
+integration-test:                       # needs all three jobs above
+  services: postgres                    # real DB, prod-style config
+  - start each packaged server, run Go/Python/Java clients against it
 ```
 
 If Go compiles and plays a match against the running server, your **wire contract** is real.
@@ -218,7 +224,7 @@ Native image tests (`./gradlew build -Dquarkus.native.enabled=true`) are even sl
 
 Both implement the same `.proto`. The **same client tests** should pass against either — that is the point of [Lesson 6](./06-virtual-threads-vs-reactive.md).
 
-To test `vt-server`, run tests from its module or point clients at `./run-server.sh vt`. The gRPC contract is identical; only the handler implementation differs.
+Today the in-JVM `@QuarkusTest` suite lives in `mutiny-server` only; `vt-server` is exercised through the CI **integration job**, which starts its packaged app and runs the polyglot clients against it. That asymmetry is itself a lesson: because `vt-server`'s business logic lives in a plain blocking `ArenaRepository`, it is also the easier of the two to unit-test — call a method, assert on the returned object, no reactive test harness needed. Porting the test suite to `vt-server` is a good exercise.
 
 ---
 

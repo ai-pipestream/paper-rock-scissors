@@ -83,16 +83,19 @@ Pick a variant. The two Quarkus builds start the Unary and Streaming services an
 To run both at once for a side-by-side benchmark, start one with a different port, e.g. `./gradlew :vt-server:quarkusDev -Dquarkus.http.port=8081`.
 
 ### Running Reference Clients
-While the server is running, you can test it using the provided clients:
+While the server is running, test it with the wrapper scripts (they build the Java client classpath on first use and default to the Quarkus port 8080):
 
-*   **Unary Client:**
+*   **Unary Client** (needs a Quarkus server — netty implements streaming only):
     ```bash
-    ./gradlew run -PmainClass=ai.pipestream.client.v1.UnaryClient
+    ./run-unary-client.sh "Java-A" "java.util.Random"
     ```
 *   **Streaming Client:**
     ```bash
-    ./gradlew run -PmainClass=ai.pipestream.client.v1.StreamingClient
+    ./run-streaming-client.sh "Java-1" "L64X128MixRandom"          # Quarkus on 8080
+    ./run-streaming-client.sh "Java-1" "L64X128MixRandom" 9000     # netty-server
     ```
+
+Under the hood both run `ai.pipestream.client.v1.{Unary,Streaming}Client` from the built `mutiny-server` classpath — the same mechanism `tournament/run-tournament.sh` uses.
 
 ## 🏆 Language tournament — whose PRNG is actually random?
 
