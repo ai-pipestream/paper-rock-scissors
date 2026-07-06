@@ -15,7 +15,7 @@ plugins {
 }
 
 def grpcVersion = '1.68.1'
-def protobufVersion = '3.25.5'
+def protobufVersion = '3.25.9'
 
 dependencies {
     // Pure, framework-free game logic + (transitively) the proto resources.
