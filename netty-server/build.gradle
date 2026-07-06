@@ -1,0 +1,58 @@
+// Vanilla grpc-java arena — the CONTROL GROUP for the performance comparison.
+//
+// No Quarkus. No Mutiny. No Vert.x. No CDI. Just the standard gRPC Java stack on a
+// raw Netty server (io.grpc:grpc-netty-shaded) with hand-written StreamObserver
+// services — "old school gRPC". This isolates how much of the throughput/latency
+// difference is the transport itself vs the framework layers the other two servers
+// stack on top (mutiny-server: reactive; vt-server: virtual threads).
+//
+// It generates its OWN stubs from the shared protos in :common (which only packages
+// the .proto files as resources and produces no stubs), so there is no class clash
+// with the Quarkus-generated ones. From :common we take only the pure GameLogic.
+plugins {
+    id 'application'
+    id 'com.google.protobuf' version '0.9.4'
+}
+
+def grpcVersion = '1.68.1'
+def protobufVersion = '3.25.5'
+
+dependencies {
+    // Pure, framework-free game logic + (transitively) the proto resources.
+    implementation project(':common')
+
+    // Standard gRPC Java stack — Netty is bundled (shaded) so there are no
+    // Netty version clashes with anything else on the classpath.
+    implementation "io.grpc:grpc-netty-shaded:${grpcVersion}"
+    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    implementation "com.google.protobuf:protobuf-java:${protobufVersion}"
+
+    // generated stubs reference javax.annotation.Generated (compile-time only).
+    compileOnly "org.apache.tomcat:annotations-api:6.0.53"
+}
+
+sourceSets {
+    main {
+        proto {
+            // Generate stubs straight from the shared contracts.
+            srcDir '../common/src/main/proto'
+        }
+    }
+}
+
+protobuf {
+    protoc { artifact = "com.google.protobuf:protoc:${protobufVersion}" }
+    plugins {
+        grpc { artifact = "io.grpc:protoc-gen-grpc-java:${grpcVersion}" }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.plugins { grpc {} }
+        }
+    }
+}
+
+application {
+    mainClass = 'ai.pipestream.arena.netty.ArenaServer'
+}

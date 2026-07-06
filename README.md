@@ -8,14 +8,37 @@ The Arena provides two modes of engagement:
 1.  **Unary (Stateless):** A classic polling-based approach where clients manage state via a match ID.
 2.  **Streaming (Stateful):** A bidirectional stream where the connection *is* the match state, offering minimal latency.
 
-…and it ships in **two interchangeable server implementations** of those same gRPC contracts:
+…and it ships in **three interchangeable server implementations** of those same gRPC contracts:
 
-| Module | Concurrency model | Persistence |
+| Module | Stack | Concurrency model | Persistence |
+|---|---|---|---|
+| **`mutiny-server`** | Quarkus (unified server) | Reactive — Mutiny `Uni`/`Multi` | Hibernate **Reactive** Panache |
+| **`vt-server`** | Quarkus (unified server) | **Virtual threads** — `@RunOnVirtualThread` | Hibernate **ORM** Panache (blocking JDBC) |
+| **`netty-server`** | **Vanilla grpc-java / Netty** — *no Quarkus* | Hand-written `StreamObserver` | In-memory (no DB) |
+
+All three are wire-compatible: the Go/Python clients can't tell them apart. The virtual-threads build is the recommended default (blocking-style code, just as fast for this I/O-bound workload, far easier to write); the reactive build is kept as a first-class citizen for streaming/backpressure and pinning-prone dependencies. See **[Lesson 6](./docs/lessons/06-virtual-threads-vs-reactive.md)** for the full comparison.
+
+### The `netty-server` control group — measuring the framework tax
+
+`netty-server` is deliberately *bare*: the standard gRPC Java stack (`io.grpc:grpc-netty-shaded`) with a raw `StreamObserver` service — no Quarkus, no Vert.x, no Mutiny, no CDI. It exists as the **control group** for a fair performance comparison: it answers "how much of the latency/throughput is the gRPC transport itself, versus the framework layers the Quarkus builds stack on top?" It shares the exact same `.proto` contracts and game logic, and generates its own vanilla stubs.
+
+Every performance-relevant knob is an env var, echoed at startup so each benchmark records its own config. The most interesting is the **HTTP/2 flow-control window** — grpc-java defaults to **1 MB**, whereas the Quarkus/Vert.x unified server defaults to **64 KB** per stream (`SETTINGS_INITIAL_WINDOW_SIZE`). To keep the comparison fair, the two Quarkus builds now explicitly raise both the per-stream and connection windows to 1 MB (`quarkus.http.initial-window-size` + `quarkus.http.http2-connection-window-size` — on the unified server the window is a plain HTTP/2 setting, *not* a `quarkus.grpc.*` one). You can still dial `netty-server`'s window to any value to compare like-for-like:
+
+```bash
+./run-server.sh netty                                   # defaults: port 9000, 1 MB window, cached-pool executor
+ARENA_FLOW_CONTROL_WINDOW=65535 ./run-server.sh netty   # match the Quarkus/Vert.x 64 KB window
+ARENA_VIRTUAL_THREADS=true      ./run-server.sh netty   # vanilla netty, but dispatch on virtual threads
+```
+
+| Env var | Default | Effect |
 |---|---|---|
-| **`mutiny-server`** | Reactive — Mutiny `Uni`/`Multi` | Hibernate **Reactive** Panache |
-| **`vt-server`** | **Virtual threads** — `@RunOnVirtualThread` | Hibernate **ORM** Panache (blocking JDBC) |
+| `ARENA_PORT` | `9000` | gRPC listen port |
+| `ARENA_TOTAL_ROUNDS` | `1000` | rounds per match |
+| `ARENA_FLOW_CONTROL_WINDOW` | grpc default (1 MB) | HTTP/2 connection + stream flow-control window, in bytes |
+| `ARENA_MAX_CONCURRENT_STREAMS` | grpc default | max concurrent streams per connection |
+| `ARENA_VIRTUAL_THREADS` | `false` | dispatch RPC callbacks on a virtual-thread-per-task executor |
 
-Both are wire-compatible: the Go/Python clients can't tell them apart. The virtual-threads build is the recommended default (blocking-style code, just as fast for this I/O-bound workload, far easier to write); the reactive build is kept as a first-class citizen for streaming/backpressure and pinning-prone dependencies. See **[Lesson 6](./docs/lessons/06-virtual-threads-vs-reactive.md)** for the full comparison.
+Because it holds the leaderboard in memory instead of writing a row per match, it also isolates the transport cost from the DB cost — run the Quarkus builds to add persistence back into the measurement.
 
 ## 🛠 Technology Stack
 
@@ -44,11 +67,12 @@ This project is documented through a series of technical lessons located in the 
 *   Docker (for Dev Services)
 
 ### Running the Arena Server
-Pick a variant — both start the Unary and Streaming services and an automatic PostgreSQL container (gRPC + health on HTTP port `8080`):
+Pick a variant. The two Quarkus builds start the Unary and Streaming services and an automatic PostgreSQL container (gRPC + health on HTTP port `8080`); the vanilla build listens on gRPC port `9000` with no database:
 
 ```bash
 ./run-server.sh vt        # virtual threads   (== ./gradlew :vt-server:quarkusDev)
 ./run-server.sh mutiny    # reactive          (== ./gradlew :mutiny-server:quarkusDev)
+./run-server.sh netty     # vanilla grpc-java, no Quarkus (control group; port 9000)
 ```
 
 To run both at once for a side-by-side benchmark, start one with a different port, e.g. `./gradlew :vt-server:quarkusDev -Dquarkus.http.port=8081`.
@@ -110,5 +134,6 @@ A Gradle multi-module project so both implementations live side by side:
 *   `common/` — shared proto contracts (`src/main/proto`) + pure `GameLogic`. Each server generates its own gRPC stubs from these via `quarkus.generate-code.grpc.scan-for-proto`.
 *   `mutiny-server/` — reactive implementation (Mutiny + Hibernate Reactive). `src/main/java`, `src/test/java`, `src/integrationTest/java`.
 *   `vt-server/` — virtual-threads implementation (`@RunOnVirtualThread` + Hibernate ORM). Thin gRPC services over plain blocking `@Transactional` repositories.
-*   `clients/` — reference clients in Go, Python, and Java (wire-compatible with either server).
+*   `netty-server/` — vanilla grpc-java / Netty implementation (no Quarkus). Hand-written `StreamObserver` service + in-memory leaderboard. The control group for the performance comparison; generates its own stubs from the shared protos.
+*   `clients/` — reference clients in Go, Python, and Java (wire-compatible with any of the three servers).
 *   `docs/lessons/` — the tutorial series; **Lesson 6** compares the two servers.

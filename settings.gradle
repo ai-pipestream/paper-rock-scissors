@@ -17,3 +17,6 @@ rootProject.name='paper-rock-scissors-arena'
 include 'common'
 include 'mutiny-server'
 include 'vt-server'
+// :netty-server — a plain grpc-java / Netty server (no Quarkus at all), the
+// control group for the performance comparison. Same contracts, vanilla stubs.
+include 'netty-server'

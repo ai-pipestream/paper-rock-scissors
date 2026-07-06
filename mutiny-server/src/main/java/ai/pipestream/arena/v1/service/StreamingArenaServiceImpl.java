@@ -5,6 +5,7 @@ import ai.pipestream.arena.v1.util.GameLogic;
 import ai.pipestream.tourney.stream.v1.*;
 import io.quarkus.grpc.GrpcService;
 import io.quarkus.hibernate.reactive.panache.Panache;
+import io.quarkus.hibernate.reactive.panache.common.WithSession;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.operators.multi.processors.BroadcastProcessor;
@@ -64,6 +65,8 @@ public class StreamingArenaServiceImpl implements StreamingArenaService {
     }
 
     @Override
+    @WithSession  // read-only scan still needs an active reactive session, or the
+                  // Uni fails with "No current Mutiny.Session" when subscribed.
     public Uni<ArenaResultsResponse> getArenaResults(ArenaResultsRequest request) {
         // Every completed streaming match wrote one MatchStatistics row. Aggregate
         // them by language into the leaderboard. (Read-only; fine to scan.)
