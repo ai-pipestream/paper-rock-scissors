@@ -14,7 +14,7 @@ plugins {
     id 'com.google.protobuf' version '0.9.4'
 }
 
-def grpcVersion = '1.68.1'
+def grpcVersion = '1.82.1'
 def protobufVersion = '3.25.9'
 
 dependencies {
