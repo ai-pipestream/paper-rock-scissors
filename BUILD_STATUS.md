@@ -1,66 +1,54 @@
 # Build Status
 
-## Current Status
+## Current Status: ✅ Gradle build working
 
-### ✅ Maven Build - WORKING
-The project builds successfully with Maven using Quarkus 3.6.4:
+The project builds and tests with **Gradle** and **Quarkus 3.37+** on **Java 21+**.
 
 ```bash
-mvn clean compile  # ✅ Works
-mvn test          # ✅ Works  
-mvn package       # ✅ Works
+./gradlew clean build          # Full multi-module build
+./gradlew test                 # Unit tests (@QuarkusTest + Dev Services)
+./gradlew :mutiny-server:quarkusBuild :vt-server:quarkusBuild
+./gradlew :netty-server:installDist
 ```
 
-### ⚠️ Gradle Build - ISSUE
-Quarkus 3.31.2 with Gradle 8.12 encounters a ConcurrentModificationException during dependency resolution.
+## Module build matrix
 
-**Error:**
-```
-Could not resolve all dependencies for configuration ':quarkusProdRuntimeClasspathConfigurationDeployment'.
-> java.util.ConcurrentModificationException (no error message)
-```
+| Module | Build | Tests | Notes |
+|---|---|---|---|
+| `:common` | ✅ | — | Shared protos + `GameLogic` |
+| `:mutiny-server` | ✅ | ✅ `test` + `quarkusIntTest` | Reactive + Hibernate Reactive |
+| `:vt-server` | ✅ | ✅ (shared patterns) | Virtual threads + Hibernate ORM |
+| `:netty-server` | ✅ | — | Vanilla grpc-java, no Quarkus |
+| Go clients | ✅ | CI compile | `clients/go/generate_protos.sh` |
+| Python clients | ✅ | CI syntax check | `clients/python/generate_protos.sh` |
 
-This is a known issue with Quarkus 3.31.x and Gradle 8.x combination.
+## CI/CD
 
-## Workarounds
+GitHub Actions (`.github/workflows/ci-cd.yml`) on push/PR to `main` and `develop`:
 
-### Option 1: Use Maven (Current Working Solution)
-```bash
-mvn clean package -DskipTests
-java -jar target/quarkus-app/quarkus-run.jar
-```
+- Gradle build + unit tests
+- Quarkus app packaging (both servers)
+- Go/Python client generation and validation
+- Integration tests with server + polyglot clients
+- Docker image builds
 
-### Option 2: Wait for Quarkus 3.32+ or Gradle Fix
-Monitor:
-- https://github.com/quarkusio/quarkus/issues
-- https://github.com/gradle/gradle/issues
+## Dependencies (representative)
 
-### Option 3: Try Quarkus 3.30.x with Gradle
-Downgrade to a more stable Quarkus version:
-```gradle
-quarkusPluginVersion=3.30.0
-quarkusPlatformVersion=3.30.0
-```
+| Component | Version / source |
+|---|---|
+| Gradle | 9.x (wrapper) |
+| Quarkus | 3.37+ (`gradle.properties`) |
+| Java | 21+ (25 recommended; virtual threads + JEP 491) |
+| gRPC (Go) | 1.78.0 |
+| gRPC (Python) | grpcio 1.78.0 |
+| PostgreSQL | Via Dev Services (dev) / external (prod) |
 
-## Dependencies Status
+## Historical note
 
-All client dependencies are up to date:
+Earlier revisions of this repo documented a Maven/Gradle concurrency issue with Quarkus 3.31.x. That has been resolved in the current Gradle multi-module layout. If you see outdated references to Maven or H2 in old forks, refer to this file and the [lesson series](./docs/lessons/README.md) for the current setup.
 
-| Component | Version | Status |
-|-----------|---------|--------|
-| Quarkus (Maven) | 3.6.4 | ✅ Working but outdated |
-| Quarkus (Gradle) | 3.31.2 | ⚠️ Configuration issue |
-| Go gRPC | 1.78.0 | ✅ Latest |
-| Go Protobuf | 1.36.11 | ✅ Latest |
-| Python gRPC | 1.78.0 | ✅ Latest |
-| Python Protobuf | 6.33.5 | ✅ Latest |
+## Local prerequisites
 
-## CI/CD Status
-
-The GitHub Actions workflow uses Maven for Java builds until the Gradle issue is resolved.
-
-## Recommendations
-
-1. **Short term**: Continue using Maven for builds
-2. **Medium term**: Update Maven pom.xml to Quarkus 3.31.2 once Gradle issue is understood
-3. **Long term**: Migrate to Gradle once the concurrent modification issue is fixed
+- **Java 21+**
+- **Docker** (Quarkus Dev Services for PostgreSQL)
+- Optional: Go 1.21+, Python 3, `protoc` for polyglot client development

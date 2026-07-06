@@ -51,14 +51,19 @@ Because it holds the leaderboard in memory instead of writing a row per match, i
 
 ## 📖 Lessons & Standards
 
-This project is documented through a series of technical lessons located in the `docs/` directory. Each lesson maps directly to the implementation in this repository.
+> **Learn gRPC by watching two ways to run the same game — then swap the server, the language, and the runtime underneath without changing the clients.**
 
-*   **[Lesson 1: Reactive Programming with Mutiny](./docs/lessons/01-mutiny-reactive.md)**
-*   **[Lesson 2: gRPC Unary vs Streaming](./docs/lessons/02-grpc-patterns.md)**
-*   **[Lesson 3: Hibernate Reactive & Panache](./docs/lessons/03-hibernate-reactive.md)**
-*   **[Lesson 4: Advanced Testing (Test vs IT)](./docs/lessons/04-testing-standards.md)**
-*   **[Lesson 5: Dev Services & Environment](./docs/lessons/05-dev-services.md)**
-*   **[Lesson 6: Virtual Threads vs Reactive — the same arena, two ways](./docs/lessons/06-virtual-threads-vs-reactive.md)**
+Hands-on tutorials in [`docs/lessons/`](./docs/lessons/README.md). Start with the [lesson index & quick start](./docs/lessons/README.md), then follow in order:
+
+*   **[Lesson 0: Your first gRPC call](./docs/lessons/00-grpc-primer.md)**
+*   **[Lesson 1: Reactive handlers with Mutiny](./docs/lessons/01-mutiny-reactive.md)**
+*   **[Lesson 2: Unary vs streaming](./docs/lessons/02-grpc-patterns.md)** — the central design lesson
+*   **[Lesson 3: Where state lives](./docs/lessons/03-hibernate-reactive.md)**
+*   **[Lesson 4: Testing the contract](./docs/lessons/04-testing-standards.md)**
+*   **[Lesson 5: Dev laptop → production config](./docs/lessons/05-dev-services.md)**
+*   **[Lesson 6: Virtual threads vs reactive](./docs/lessons/06-virtual-threads-vs-reactive.md)**
+*   **[Lesson 7: Deploy anywhere, clients in any language](./docs/lessons/07-deployment-and-polyglot.md)**
+*   **[Appendix A: Threading models (optional)](./docs/lessons/appendix-a-threading-models.md)**
 
 ## 🚦 Getting Started
 
@@ -136,4 +141,4 @@ A Gradle multi-module project so both implementations live side by side:
 *   `vt-server/` — virtual-threads implementation (`@RunOnVirtualThread` + Hibernate ORM). Thin gRPC services over plain blocking `@Transactional` repositories.
 *   `netty-server/` — vanilla grpc-java / Netty implementation (no Quarkus). Hand-written `StreamObserver` service + in-memory leaderboard. The control group for the performance comparison; generates its own stubs from the shared protos.
 *   `clients/` — reference clients in Go, Python, and Java (wire-compatible with any of the three servers).
-*   `docs/lessons/` — the tutorial series; **Lesson 6** compares the two servers.
+*   `docs/lessons/` — gRPC-first tutorial series ([index](./docs/lessons/README.md)); **Lesson 6** compares reactive vs virtual threads; **Lesson 7** covers deployment and the polyglot tournament.
