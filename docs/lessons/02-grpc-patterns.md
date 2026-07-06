@@ -1,14 +1,27 @@
 # Lesson 2: gRPC Patterns — Unary vs Streaming
 
-This project demonstrates two fundamental gRPC communication patterns through a paper-rock-scissors arena. Both services live in the same Quarkus application, share the same port, and use Mutiny-flavored stubs — but their architectures couldn't be more different.
+**Goal:** Choose the right RPC shape for your API — and understand why this arena implements the same game two different ways.
 
-The goal isn't to declare a winner (spoiler: streaming wins for this use case). It's to understand *why* the patterns behave the way they do, and to see the trade-offs play out in real code.
+> **Prerequisites:** [Lesson 0](./00-grpc-primer.md) (run both client types once)
 
-## The Proto Contracts
+This is the **central lesson** in the series. Everything else — database choice, reactive vs virtual threads, deployment — follows from the decision you make here.
 
-Before diving into the implementations, look at how differently each service defines its API.
+---
 
-### Unary: Three Separate RPCs
+## The design question
+
+You are building a two-player game server. Players join, play many rounds, get results. How should the API look?
+
+**Option A — three unary RPCs:** register, submit move, check result (poll until done).  
+**Option B — one bidirectional stream:** handshake once, then server pushes triggers and results.
+
+Both are valid gRPC. This repo implements **both** so you can measure the trade-off in real code, not slides.
+
+---
+
+## The proto contracts side by side
+
+### Unary: context on every call
 
 ```proto
 service UnaryArenaService {
@@ -16,46 +29,98 @@ service UnaryArenaService {
   rpc SubmitMove (SubmitMoveRequest) returns (SubmitMoveResponse);
   rpc CheckRoundResult (CheckRoundResultRequest) returns (CheckRoundResultResponse);
 }
-```
 
-Three distinct operations. The client drives every interaction — register, submit, poll. Each call is independent, so every request must carry enough context for the server to figure out what's going on.
-
-```proto
 message SubmitMoveRequest {
   string match_id = 1;      // "Which match am I in?"
   int32 round_number = 2;   // "What round is it?"
-  int32 move = 3;           // The actual payload
+  int32 move = 3;
 }
 ```
 
-Two out of three fields exist purely to re-establish context that the server already knew a moment ago but has since forgotten.
+Two of three fields exist only to **re-establish context** the server knew a moment ago but did not keep in memory between calls.
 
-### Streaming: One Bidirectional RPC
+### Streaming: context in the connection
 
 ```proto
 service StreamingArenaService {
   rpc Battle (stream BattleRequest) returns (stream BattleResponse);
+  rpc GetArenaResults (ArenaResultsRequest) returns (ArenaResultsResponse);
 }
-```
 
-One RPC. Both sides send and receive freely. The connection *is* the match — no IDs needed.
-
-```proto
 message BattleRequest {
   oneof payload {
-    Handshake handshake = 1;  // Once, at the start
-    Move move = 2;            // Just the move — no context required
+    Handshake handshake = 1;  // once, at connect
+    Move move = 2;            // just the move
   }
 }
 ```
 
-The `Move` message has a single field. The server knows which match this belongs to because it arrived on a specific stream.
+The `Move` message has **one field**. The server knows which match this belongs to because it arrived on **that client's stream**.
 
-## The Unary Service: Database as Memory
+---
 
-`UnaryArenaServiceImpl` is annotated with `@GrpcService` and returns `Uni<T>` from every method. Quarkus's gRPC integration subscribes to these `Uni` instances automatically — you never call `.subscribe()` yourself in server-side code.
+## Sequence diagrams: feel the difference
 
-### Registration: Find or Create
+### Unary — client drives, server forgets, database remembers
+
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant S as Server
+    participant DB as PostgreSQL
+
+    A->>S: Register()
+    S->>DB: INSERT match
+    S-->>A: match_id
+
+    A->>S: SubmitMove(match_id, round=1, move)
+    S->>DB: SELECT match, SELECT/INSERT round
+    S-->>A: ACCEPTED
+
+    loop Polling loop
+        A->>S: CheckRoundResult(match_id, round=1)
+        S->>DB: SELECT round
+        S-->>A: PENDING
+    end
+
+    A->>S: CheckRoundResult(match_id, round=1)
+    S-->>A: COMPLETE, outcome
+```
+
+### Streaming — server drives, connection remembers
+
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant S as Server (in-memory)
+    participant B as Client B
+
+    A->>S: Stream.open() + Handshake
+    B->>S: Stream.open() + Handshake
+    S-->>A: OPPONENT_FOUND
+    S-->>B: OPPONENT_FOUND
+
+    loop 1000 rounds
+        S-->>A: RequestMove(round=N)
+        S-->>B: RequestMove(round=N)
+        A->>S: Move
+        B->>S: Move
+        S-->>A: RoundResult
+        S-->>B: RoundResult
+    end
+
+    S-->>A: MATCH_COMPLETE
+    S-->>B: MATCH_COMPLETE
+    Note over S,DB: One DB write at end (stats only)
+```
+
+---
+
+## The unary service: database as memory
+
+`UnaryArenaServiceImpl` returns `Uni<T>` from every method. Each call reconstructs state from PostgreSQL.
+
+### Registration — find or create
 
 ```java
 @Override
@@ -64,12 +129,13 @@ public Uni<RegisterResponse> register(RegisterRequest request) {
     return UnaryMatch.findWaitingMatches()
         .chain(waitingMatches -> {
             if (!waitingMatches.isEmpty()) {
+                // join existing waiting match
                 UnaryMatch match = waitingMatches.get(0);
                 match.playerTwoName = request.getLanguageName();
                 match.status = UnaryMatch.MatchStatus.READY;
-                match.startedAt = Instant.now();
                 return match.persist().replaceWith(/* READY response */);
             } else {
+                // create new waiting match
                 UnaryMatch newMatch = new UnaryMatch();
                 newMatch.matchId = UUID.randomUUID().toString();
                 newMatch.playerOneName = request.getLanguageName();
@@ -80,66 +146,20 @@ public Uni<RegisterResponse> register(RegisterRequest request) {
 }
 ```
 
-`@WithTransaction` opens a reactive transaction that wraps the entire method. The `.chain()` operator sequences two async steps: query the database, then either update the found match or insert a new one. At no point does a thread block — Hibernate Reactive handles the I/O, and Mutiny threads the result through the pipeline.
+### Submitting a move — pay the context tax
 
-### Submitting a Move: Context Reconstruction
+Every `SubmitMove` does roughly:
 
-Every time a client submits a move, the server has to reconstruct the world from scratch:
+1. `SELECT` match (with pessimistic lock — see Lesson 3)
+2. `SELECT` round for `(match_id, round_number)`
+3. `INSERT` or `UPDATE` round
+4. Update match statistics
 
-```java
-@Override
-@WithTransaction
-public Uni<SubmitMoveResponse> submitMove(SubmitMoveRequest request) {
-    return UnaryMatch.findByMatchId(request.getMatchId())    // SELECT match
-        .chain(match -> {
-            // Validate match exists, isn't completed, round number matches...
-            return UnaryRound.findByMatchAndRound(             // SELECT round
-                    request.getMatchId(), request.getRoundNumber())
-                .chain(round -> {
-                    if (round == null) {
-                        // First player to move: INSERT a new round
-                        UnaryRound newRound = new UnaryRound();
-                        newRound.playerOneMove = request.getMove();
-                        newRound.status = UnaryRound.RoundStatus.WAITING_PLAYER_TWO;
-                        return newRound.persist().replaceWith(/* ACCEPTED */);
-                    } else if (round.playerTwoMove == null) {
-                        // Second player: complete the round
-                        round.playerTwoMove = request.getMove();
-                        round.outcome = GameLogic.determineWinner(
-                            round.playerOneMove, round.playerTwoMove);
-                        return updateMatchStats(match, round)
-                            .replaceWith(/* ACCEPTED */);
-                    }
-                });
-        });
-}
-```
+That is **~6 database operations per round**. Over 1,000 rounds: **~6,000 IOPS per match**.
 
-Two database reads before the server even knows what to do. Then an insert or update, plus match statistics updates. That's the cost of statelessness: every request starts from zero.
+### Polling — the latency tax
 
-### Polling: The Waiting Game
-
-The client has no way to know when both moves are in. It guesses, by asking repeatedly:
-
-```java
-@Override
-@WithTransaction
-public Uni<CheckRoundResultResponse> checkRoundResult(CheckRoundResultRequest request) {
-    return UnaryRound.findByMatchAndRound(request.getMatchId(), request.getRoundNumber())
-        .map(round -> {
-            if (round == null || round.status != UnaryRound.RoundStatus.COMPLETE) {
-                return CheckRoundResultResponse.newBuilder()
-                    .setStatus("PENDING").build();
-            }
-            return CheckRoundResultResponse.newBuilder()
-                .setStatus("COMPLETE")
-                .setOpponentMove(round.playerTwoMove)
-                .setOutcome(round.outcome).build();
-        });
-}
-```
-
-Simple enough on the server side — it's just a SELECT. But the client calls this in a loop:
+The server exposes a simple `CheckRoundResult` — but the client must loop:
 
 ```java
 private CheckRoundResultResponse pollForResult(String matchId, int round) {
@@ -147,23 +167,22 @@ private CheckRoundResultResponse pollForResult(String matchId, int round) {
         .uni(() -> mutinyStub.checkRoundResult(
             CheckRoundResultRequest.newBuilder()
                 .setMatchId(matchId)
-                .setRoundNumber(round).build()
-        ))
+                .setRoundNumber(round).build()))
         .until(res -> "COMPLETE".equals(res.getStatus()))
         .collect().last()
         .await().atMost(Duration.ofSeconds(30));
 }
 ```
 
-This is Mutiny's `repeating().uni().until()` pattern — it fires the RPC over and over until the predicate is satisfied. Elegant code, brutal on the database. Every poll is a round-trip: client to server, server to database, database to server, server to client. Multiply by however many polls it takes, times 1,000 rounds, times two players.
+Every poll: client → server → database → server → client. Multiply by however many polls until the opponent moves. This is the **polling anti-pattern** — if you are polling, you probably wanted a stream.
 
-**The IOPS math**: ~6 database operations per round, 1,000 rounds = ~6,000 database IOPS per match. That's the tax you pay for polling.
+---
 
-## The Streaming Service: The Connection Is the Context
+## The streaming service: connection as context
 
-`StreamingArenaServiceImpl` takes a completely different approach. No database for game state. No polling. The server drives everything.
+`StreamingArenaServiceImpl` keeps active matches in memory. No round-by-round database traffic.
 
-### Opening the Stream
+### Opening the stream
 
 ```java
 @Override
@@ -181,40 +200,12 @@ public Multi<BattleResponse> battle(Multi<BattleRequest> request) {
 }
 ```
 
-This is the heart of bidirectional streaming in Mutiny. The method receives a `Multi<BattleRequest>` (the client's outbound stream) and returns a `Multi<BattleResponse>` (the server's outbound stream). The `BroadcastProcessor` acts as a programmatic emitter — anywhere in the service, you can call `processor.onNext(...)` to push a message to that specific client.
+The method receives `Multi<BattleRequest>` (inbound) and returns `Multi<BattleResponse>` (outbound). The `BroadcastProcessor` is a programmatic emitter — call `processor.onNext(...)` anywhere to push to that client.
 
-The `request.subscribe().with(...)` sets up three handlers: one for each incoming message, one for errors, one for stream completion. No polling — messages arrive when the client sends them.
-
-### Player Matching: In-Memory Handshake
-
-```java
-private void tryMatchPlayers(StreamPlayer player) {
-    synchronized (waitingPlayers) {
-        if (!waitingPlayers.isEmpty()) {
-            String waitingId = waitingPlayers.keySet().iterator().next();
-            StreamPlayer opponent = waitingPlayers.remove(waitingId);
-        } else {
-            waitingPlayers.put(player.connectionId, player);
-            return;
-        }
-    }
-    if (opponent != null) {
-        createMatch(player, opponent);
-    }
-}
-```
-
-A `ConcurrentHashMap` of waiting players. First one in waits; second one triggers a match. No database involved. The `synchronized` block is narrow — just long enough to atomically check-and-remove or add.
-
-### The Pulse: Server-Driven Rounds
+### The pulse — server-driven rounds
 
 ```java
 private void startNextRound(StreamMatch match) {
-    if (match.currentRound > TOTAL_ROUNDS) {
-        completeMatch(match);
-        return;
-    }
-
     RequestMove trigger = RequestMove.newBuilder()
         .setRoundId(match.currentRound).build();
 
@@ -225,10 +216,9 @@ private void startNextRound(StreamMatch match) {
 }
 ```
 
-The server tells the clients when to move. Not the other way around. This is the "Pulse" — a `RequestMove` message that says "I need your move for round N." The client just responds:
+The server tells clients **when** to move. Clients respond with three lines:
 
 ```java
-// Client-side: respond to the trigger immediately
 } else if (update.hasTrigger()) {
     int move = random.nextInt(3);
     requestProcessor.onNext(BattleRequest.newBuilder()
@@ -237,137 +227,109 @@ The server tells the clients when to move. Not the other way around. This is the
 }
 ```
 
-Three lines. No match ID, no round number, no context lookup. The client is genuinely dumb — it generates a random number when asked and sends it back. All the intelligence lives on the server.
+**IOPS during the match:** 0. **At completion:** 1 stats write. For 1,000 rounds: **1 write**.
 
-### Processing a Round: Both Moves In
+---
+
+## The numbers
+
+| Metric | Unary (polling) | Streaming (push) |
+|---|---|---|
+| DB ops per 1,000-round match | ~6,000 | 1 |
+| Round latency | 50–200 ms (poll + DB) | 1–5 ms (memory) |
+| Client complexity | manages match_id, round, poll loop | handshake + react to triggers |
+| Server state | durable in PostgreSQL | volatile in memory |
+| Horizontal scaling | easier (stateless RPCs) | harder (sticky connections) |
+
+Neither row "wins" universally. The arena makes the gap **visceral** so you remember it when designing your own API.
+
+---
+
+## Client complexity: driver vs responder
+
+### Unary client — you own the flow
 
 ```java
-private void handleMove(StreamPlayer player, Move move) {
-    StreamMatch match = activeMatches.get(player.matchId);
+RegisterResponse reg = mutinyStub.register(...).await().atMost(...);
+String matchId = reg.getMatchId();
 
-    synchronized (match) {
-        if (player == match.playerOne) {
-            match.playerOneMove = move.getMove();
-            match.playerOneMoveReceived = true;
-        } else {
-            match.playerTwoMove = move.getMove();
-            match.playerTwoMoveReceived = true;
-        }
-
-        if (match.playerOneMoveReceived && match.playerTwoMoveReceived) {
-            processRound(match);
-        }
-    }
+for (int round = 1; round <= TOTAL_ROUNDS; round++) {
+    mutinyStub.submitMove(/* matchId, round, move */).await()...;
+    CheckRoundResultResponse result = pollForResult(matchId, round);
 }
 ```
 
-The server knows which player sent the move because it has a direct reference — `player == match.playerOne` is a simple identity check. When both moves arrive, `processRound` fires immediately. No polling, no database query.
+More code. More ways to desync (wrong round number, stale match_id).
 
-### Sending Results: Push, Not Pull
-
-```java
-private void processRound(StreamMatch match) {
-    String outcome = GameLogic.determineWinner(match.playerOneMove, match.playerTwoMove);
-
-    match.playerOne.processor.onNext(BattleResponse.newBuilder()
-        .setResult(RoundResult.newBuilder()
-            .setRoundId(match.currentRound)
-            .setOpponentMove(match.playerTwoMove)
-            .setOutcome(GameLogic.outcomeForPlayer(outcome, true)))
-        .build());
-
-    match.playerTwo.processor.onNext(BattleResponse.newBuilder()
-        .setResult(RoundResult.newBuilder()
-            .setRoundId(match.currentRound)
-            .setOpponentMove(match.playerOneMove)
-            .setOutcome(GameLogic.outcomeForPlayer(outcome, false)))
-        .build());
-
-    match.currentRound++;
-    startNextRound(match);
-}
-```
-
-Each player gets a personalized result — their own outcome and their opponent's move — pushed instantly. Then the next round starts. No waiting. The entire round lifecycle — trigger, collect moves, resolve, notify, advance — happens in microseconds, limited only by network latency between clients and server.
-
-**The IOPS math**: 0 database operations during the match. One single INSERT at the very end to save statistics. For 1,000 rounds: 1 write.
-
-## The Unified Server
-
-Both services coexist in the same Quarkus application:
-
-```yaml
-quarkus:
-  grpc:
-    server:
-      use-separate-server: false
-```
-
-This tells Quarkus to host gRPC on the main HTTP server rather than a separate port. Both `UnaryArenaService` and `StreamingArenaService` share the same JVM, the same event loop threads, and the same database connection pool. Clients just need to know which service to call — the transport layer is identical.
-
-## The Client Contrast
-
-The difference in client complexity tells the whole story.
-
-### Unary Client: The Driver
-
-The unary client is in charge. It registers, loops through rounds, submits moves, and polls for results. It manages round numbers, handles `WAITING_FOR_OPPONENT`, and implements retry logic:
+### Streaming client — you respond
 
 ```java
-public void play() {
-    RegisterResponse regResponse = mutinyStub.register(/* ... */)
-        .await().atMost(Duration.ofSeconds(5));
-
-    for (int round = 1; round <= 1000; round++) {
-        int move = random.nextInt(3);
-        mutinyStub.submitMove(/* matchId, round, move */)
-            .await().atMost(Duration.ofSeconds(2));
-        CheckRoundResultResponse result = pollForResult(matchId, round);
-    }
-}
+responses.subscribe().with(update -> {
+    if (update.hasTrigger()) { sendMove(); }
+    else if (update.getStatus().equals("MATCH_COMPLETE")) { done.countDown(); }
+});
+requestProcessor.onNext(/* handshake */);
+done.await();
 ```
 
-The client owns the flow. It decides when to move, when to poll, and when to stop. That's more power, but also more responsibility — and more ways to get out of sync with the server.
+The client does not track round numbers. The server does.
 
-### Streaming Client: The Responder
+---
 
-The streaming client opens a connection and reacts to whatever the server sends:
+## Polyglot clients: same contract, any language
 
-```java
-public void play() throws InterruptedException {
-    BroadcastProcessor<BattleRequest> requestProcessor = BroadcastProcessor.create();
-    Multi<BattleResponse> responses = mutinyStub.battle(requestProcessor);
+The `.proto` files are the product. Go and Python clients generated from the same contract talk to any server:
 
-    responses.subscribe().with(update -> {
-        if (update.hasTrigger()) {
-            int move = random.nextInt(3);
-            requestProcessor.onNext(/* move */);
-        } else if (update.hasStatus()) {
-            if ("MATCH_COMPLETE".equals(update.getStatus())) finishLatch.countDown();
-        }
-    });
+```bash
+# Quarkus server on 8080
+./run-server.sh vt
 
-    requestProcessor.onNext(/* handshake */);
-    finishLatch.await(5, TimeUnit.MINUTES);
-}
+# Go streaming client
+cd clients/go && ./generate_protos.sh
+go run streaming_client.go -host localhost -port 8080 -language Go
+
+# Python streaming client
+cd clients/python && ./generate_protos.sh
+python3 streaming_client.py --host localhost --port 8080 --language Python
 ```
 
-Send a handshake, then just listen. When asked for a move, send one. When told the match is over, stop. The client doesn't even know what round it's on — the server tracks that.
+If the contract is stable, **swap Java for Go, Quarkus for Netty, reactive for virtual threads** — clients keep working. [Lesson 7](./07-deployment-and-polyglot.md) runs a full tournament across three languages.
 
-## When to Use Which
+---
 
-Unary isn't wrong. It's the right tool for a different job.
+## When to use which pattern
 
-**Use Unary when:**
-- The operation is genuinely one-shot (look up a user, submit a form)
-- You need horizontal scalability with stateless load balancing
+**Choose unary when:**
+
+- Each operation is truly independent (lookup user, charge card once)
+- You need stateless load balancing behind any random instance
 - Clients connect briefly and disconnect
-- Caching or CDN layers sit between client and server
+- A CDN or cache sits in front
 
-**Use Streaming when:**
-- Both sides need to send data at unpredictable times
-- Low latency matters more than simplicity
-- The interaction is stateful and long-lived
-- You'd otherwise be polling (that's a code smell for "you wanted a stream")
+**Choose streaming when:**
 
-The paper-rock-scissors arena makes the difference visceral: 6,000 database IOPS vs 1. Tens of milliseconds per round vs single-digit milliseconds. A client that drives the protocol vs a client that just shows up and plays.
+- Both sides send at unpredictable times
+- Low latency matters more than operational simplicity
+- The interaction is long-lived and stateful
+- You would otherwise poll — **polling is a smell that you wanted push**
+
+**Choose both when:**
+
+- You need a simple REST-like RPC *and* a real-time channel (common in production: CRUD unary + live updates stream)
+
+---
+
+## Exercises
+
+1. **Count the polls** — Add logging to `pollForResult` in `UnaryClient`. How many `CheckRoundResult` calls per round?
+2. **Break round sync** — Submit move with wrong `round_number`. What does the server return? Why?
+3. **Same game, different port** — Run `netty-server` (port 9000) with Go client. Then run `vt-server` (port 8080). Same `.proto`, different runtime.
+4. **Read the proto comments** — Open `unary.proto` and `stream.proto`. The comments encode the design intent.
+
+---
+
+## What's next
+
+The RPC shape you chose dictates **where state lives**:
+
+**[Lesson 3: Where state lives](./03-hibernate-reactive.md)** — database tables vs in-memory maps vs the stream itself.

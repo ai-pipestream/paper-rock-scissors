@@ -64,7 +64,7 @@ go build -o unary_client unary_client.go && go build -o streaming_client streami
 ## Client Options
 
 - `-host`: Arena server hostname (default: localhost)
-- `-port`: Arena server port (default: 9000)
+- `-port`: Arena server port (default: 9000 — matches the vanilla `netty-server`; use `-port 8080` for the Quarkus servers started via `./run-server.sh vt|mutiny`)
 - `-language`: Language identifier for statistics (default: Go-1.21)
 - `-prng`: PRNG algorithm name for statistics (default: math/rand)
 

@@ -280,28 +280,18 @@ Clients only calculate `rand() % 3` when asked, demonstrating that complexity sh
 
 ## Lessons Demonstrated
 
-### 1. Context is King
-- **Unary**: Context must be explicitly managed and passed
-- **Streaming**: Context is implicit in the connection
+Full hands-on tutorials live in [`docs/lessons/`](./docs/lessons/README.md). The architecture maps to this learning path:
 
-### 2. Polling is Expensive
-- Wastes bandwidth and CPU cycles
-- Introduces latency
-- Requires timeout handling
-- Creates "chatty" protocols
-
-### 3. Streaming Enables Server Push
-- Server controls the flow
-- No polling required
-- Immediate feedback
-- Natural backpressure handling
-
-### 4. State Management Trade-offs
-- **Database**: Durable, consistent, but slow
-- **Memory**: Fast, but volatile
-
-### 5. PRNG Quality Matters
-The system can detect algorithmic bias in random number generators, demonstrating that not all RNGs are equal.
+| Concept | Lesson |
+|---|---|
+| gRPC basics, first RPC | [Lesson 0](./docs/lessons/00-grpc-primer.md) |
+| Context explicit (unary) vs implicit (stream) | [Lesson 2](./docs/lessons/02-grpc-patterns.md) |
+| Polling tax + server push | [Lesson 2](./docs/lessons/02-grpc-patterns.md) |
+| DB vs memory vs connection state | [Lesson 3](./docs/lessons/03-hibernate-reactive.md) |
+| Reactive vs virtual-thread implementation | [Lesson 6](./docs/lessons/06-virtual-threads-vs-reactive.md) |
+| Polyglot wire compatibility + tournament | [Lesson 7](./docs/lessons/07-deployment-and-polyglot.md) |
+| Vanilla grpc-java control group (`netty-server`) | [Lesson 7](./docs/lessons/07-deployment-and-polyglot.md) |
+| PRNG bias detection | [Lesson 7](./docs/lessons/07-deployment-and-polyglot.md) + tournament |
 
 ## Future Enhancements
 

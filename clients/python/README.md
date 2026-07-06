@@ -46,7 +46,7 @@ python3 streaming_client.py --host localhost --port 9000 --language Python-3.12 
 ## Client Options
 
 - `--host`: Arena server hostname (default: localhost)
-- `--port`: Arena server port (default: 9000)
+- `--port`: Arena server port (default: 9000 — matches the vanilla `netty-server`; use `--port 8080` for the Quarkus servers started via `./run-server.sh vt|mutiny`)
 - `--language`: Language identifier for statistics (default: Python-3.12)
 - `--prng`: PRNG algorithm name for statistics (default: random.Random)
 
