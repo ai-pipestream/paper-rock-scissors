@@ -16,7 +16,7 @@ The Arena provides two modes of engagement:
 | **`vt-server`** | Quarkus (unified server) | **Virtual threads** — `@RunOnVirtualThread` | Hibernate **ORM** Panache (blocking JDBC) |
 | **`netty-server`** | **Vanilla grpc-java / Netty** — *no Quarkus* | Hand-written `StreamObserver` | In-memory (no DB) |
 
-All three are wire-compatible: the Go/Python clients can't tell them apart. The virtual-threads build is the recommended default (blocking-style code, just as fast for this I/O-bound workload, far easier to write); the reactive build is kept as a first-class citizen for streaming/backpressure and pinning-prone dependencies. See **[Lesson 6](./docs/lessons/06-virtual-threads-vs-reactive.md)** for the full comparison.
+All three are wire-compatible: the Go/Python clients can't tell them apart. Our preference for I/O-bound request/response work is the **virtual-threads** build — blocking-style code, just as fast for this workload, far easier to read, test, and debug (a stack trace points at your own line, not into a chain of operators). The reactive build is kept in full as a legitimate alternative, strongest where you need streaming operators and real backpressure. On JDK 24+ ([JEP 491](https://openjdk.org/jeps/491), and this project runs 25) `synchronized` no longer pins virtual threads, so that historical reason to prefer reactive is gone. Read both and decide where your own preference lies — see **[Lesson 6](./docs/lessons/06-virtual-threads-vs-reactive.md)** for the full comparison.
 
 ### The `netty-server` control group — measuring the framework tax
 

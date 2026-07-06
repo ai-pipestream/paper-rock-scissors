@@ -9,7 +9,7 @@
 
 Both implement the same `.proto` contracts (shared from [`common`](../../common)), both pass the same clients, both start a PostgreSQL container via Dev Services. The *only* thing that differs is how they get work done while waiting on the database.
 
-> **The short version.** The virtual-threads version is meaningfully easier to write, read, test, and debug, and for this workload it is just as fast. That is why this project now leads with it. The reactive version is kept as a first-class citizen because reactive is still the right tool in some situations — we'll be honest about which.
+> **The short version.** Here are both, in full, doing the same job — read them and decide where your own preference lies. Ours is virtual threads for this kind of I/O-bound request/response work: the code is ordinary blocking Java, so it's easier to write, test, and — the thing that settled it for us after time in production — *debug*. A stack trace points at your own line number, not into a chain of operators, and you can step through it in a debugger the way you already know how. The reactive version is a mature, capable approach that plenty of teams run happily; we keep it here in full, not as a straw man. Two things about virtual threads are worth knowing before you choose, and we cover them below.
 
 ---
 
@@ -157,24 +157,35 @@ Thread.ofVirtual().start(() -> streamStats.save(stats));
 
 ---
 
-## When reactive is still the right call
+## Two things to know before you pick virtual threads
 
-Virtual threads are not a universal replacement. Keep reactive (`mutiny-server`) in mind when:
+We prefer virtual threads, but that preference comes with two honest caveats. Neither is a reason to avoid them today; both are worth knowing so you evaluate them on their current state, not their reputation.
 
-- **You need streaming operators and backpressure.** `Multi` gives you `filter`, `group`, `onOverflow`, and demand-driven backpressure for free. Hand-rolling those over blocking iterators is real work.
-- **Third-party code pins.** A virtual thread that enters a `synchronized` block or calls native/JNI code **pins** its carrier thread, silently reintroducing thread-pool starvation. Old JDBC drivers and libraries are the usual offenders (`ReentrantLock` avoids it; migrating a dependency tree does not). If your hot path pins, reactive's non-blocking I/O sidesteps the problem entirely. Profile before you assume.
-- **`ThreadLocal`-heavy libraries.** Caches keyed on `ThreadLocal` can allocate one instance per virtual thread — and there can be millions of them.
+1. **They had a rocky start.** Loom was in preview through JDK 19–20 and only went GA in **21** (September 2023). The first stretch was bumpy: profilers and debuggers were catching up, some `ThreadLocal`-heavy libraries behaved badly at scale, and — the headline gotcha — `synchronized` *pinned* (see below). If you tried virtual threads early and bounced off, that's fair; a lot has been smoothed out since, and the tooling is now solid.
 
-And keep virtual threads in mind — the default for new I/O-bound services here — when you want blocking-style code that scales, readable stack traces, and a mental model your whole team already has.
+2. **Pinning is fixed.** The one that actually bit people: a virtual thread that entered a `synchronized` block pinned its carrier (OS) thread for the duration, so a lock around a blocking call could quietly reintroduce thread-pool starvation. The old advice was "audit your whole dependency tree for `synchronized`." **[JEP 491](https://openjdk.org/jeps/491) (JDK 24, March 2025) removed it** — `synchronized` no longer pins, and `Object.wait()` is fixed too. On JDK 24+ (this project runs **25**) the biggest reason teams reached for reactive *to avoid pinning* is gone. Native/foreign (JNI) frames can still pin, but that's rare in ordinary service code.
+
+So the fairest way to read this lesson: on a modern JDK, virtual threads deliver the scalability without the sharp edges that defined their debut. Where you land is still your call.
+
+## Where reactive still fits
+
+Virtual threads aren't a universal replacement, and this isn't a eulogy for reactive — `mutiny-server` is here, complete, because it's a legitimate choice. Reach for it when:
+
+- **You need streaming operators and real backpressure.** `Multi` gives you `filter`, `group`, `onOverflow`, and demand-driven backpressure out of the box. Hand-rolling those over blocking iterators is genuine work, and this is where reactive is strongest.
+- **The codebase (or team) is already fluent in reactive.** Consistency has value; a shop that thinks in `Uni`/`Multi` and has the operational muscle memory for it isn't wrong to stay there.
+- **`ThreadLocal`-heavy libraries are in the hot path.** Caches keyed on `ThreadLocal` can allocate one instance per virtual thread, and there can be a great many of them — worth measuring.
+
+Historically "third-party code pins" belonged on this list; JEP 491 took it off. If you last evaluated the trade-off before JDK 24, it's worth a fresh look.
 
 | | Reactive (`mutiny-server`) | Virtual threads (`vt-server`) |
 |---|---|---|
 | Code shape | `Uni`/`Multi` chains | plain blocking Java |
 | Learning curve | steep (operators, "colored" functions) | none beyond normal Java |
-| Stack traces | into Mutiny operators | your own line numbers |
+| Stack traces & debugging | into Mutiny operators | your own line numbers; step-through works |
 | Backpressure / stream ops | built in | manual |
-| Failure mode | never blocks | pinning (`synchronized`/JNI) |
-| Best for | streaming, heavy fan-in/out, pinning-prone deps | I/O-bound request/response, teams new to reactive |
+| `synchronized` pinning | n/a (never blocks) | fixed in JDK 24 (JEP 491); native/JNI can still pin |
+| Best for | streaming, heavy fan-in/out, backpressure | I/O-bound request/response |
+| Our preference | kept as a full, honest alternative | **default for new I/O-bound services** |
 
 ---
 
