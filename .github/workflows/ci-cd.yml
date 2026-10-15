@@ -37,14 +37,14 @@ jobs:
       run: ./gradlew :mutiny-server:quarkusBuild :vt-server:quarkusBuild
 
     - name: Upload mutiny-server app
-      uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+      uses: actions/upload-artifact@v4
       with:
         name: quarkus-app-mutiny
         path: mutiny-server/build/quarkus-app/
         retention-days: 7
 
     - name: Upload vt-server app
-      uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+      uses: actions/upload-artifact@v4
       with:
         name: quarkus-app-vt
         path: vt-server/build/quarkus-app/
@@ -57,14 +57,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # The rokkon-ci runner image ships Python 3.14 but no pip/venv and no
-    # lsb_release (which breaks actions/setup-python). Use the system Python in a
-    # venv instead; grpcio/grpcio-tools ship 3.14 wheels, so this is wheels-only.
-    - name: Set up Python venv
-      run: |
-        apt-get update -qq && apt-get install -y -qq python3-venv
-        python3 -m venv "$HOME/venv"
-        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
 
     - name: Install dependencies
       working-directory: clients/python
@@ -83,7 +79,7 @@ jobs:
         python3 -m py_compile streaming_client.py
 
     - name: Upload Python clients
-      uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+      uses: actions/upload-artifact@v4
       with:
         name: python-clients
         path: clients/python/
@@ -135,7 +131,7 @@ jobs:
         go vet streaming_client.go
 
     - name: Upload Go binaries
-      uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+      uses: actions/upload-artifact@v4
       with:
         name: go-clients
         path: |
@@ -173,13 +169,10 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    # See java-build note: system Python in a venv (setup-python breaks on the
-    # runner image's missing lsb_release).
-    - name: Set up Python venv
-      run: |
-        apt-get update -qq && apt-get install -y -qq python3-venv
-        python3 -m venv "$HOME/venv"
-        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
 
     - name: Set up Go
       uses: actions/setup-go@v5
@@ -187,25 +180,25 @@ jobs:
         go-version: '1.22'
 
     - name: Download mutiny-server app
-      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      uses: actions/download-artifact@v4
       with:
         name: quarkus-app-mutiny
         path: mutiny-server/build/quarkus-app/
 
     - name: Download vt-server app
-      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      uses: actions/download-artifact@v4
       with:
         name: quarkus-app-vt
         path: vt-server/build/quarkus-app/
 
     - name: Download Python clients
-      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      uses: actions/download-artifact@v4
       with:
         name: python-clients
         path: clients/python/
 
     - name: Download Go binaries
-      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      uses: actions/download-artifact@v4
       with:
         name: go-clients
         path: clients/go/
@@ -224,14 +217,11 @@ jobs:
     # datasource at the postgres service (reactive URL for mutiny, JDBC for vt).
     - name: Run client suite against both servers
       timeout-minutes: 8
-      # The job runs in a container, so the postgres service is reached by its
-      # service name, not localhost. Override the datasource host for both jars
-      # (mutiny reads the reactive URL, vt reads the JDBC URL).
       env:
         QUARKUS_DATASOURCE_USERNAME: quarkus
         QUARKUS_DATASOURCE_PASSWORD: quarkus
-        QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://postgres:5432/arena
-        QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/arena
+        QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://localhost:5432/arena
+        QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://localhost:5432/arena
         # Short match so a full run-to-completion is a couple of seconds in CI.
         ARENA_TOTAL_ROUNDS: "20"
       run: |
@@ -293,7 +283,7 @@ jobs:
       env:
         QUARKUS_DATASOURCE_USERNAME: quarkus
         QUARKUS_DATASOURCE_PASSWORD: quarkus
-        QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/arena
+        QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://localhost:5432/arena
         ARENA_TOTAL_ROUNDS: "10"
       run: |
         set -e
@@ -331,13 +321,13 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Download mutiny-server app
-      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      uses: actions/download-artifact@v4
       with:
         name: quarkus-app-mutiny
         path: mutiny-server/build/quarkus-app/
 
     - name: Download vt-server app
-      uses: https://code.forgejo.org/forgejo/download-artifact@v4
+      uses: actions/download-artifact@v4
       with:
         name: quarkus-app-vt
         path: vt-server/build/quarkus-app/
@@ -355,7 +345,7 @@ jobs:
         docker save paper-rock-scissors-vt:latest | gzip > paper-rock-scissors-vt.tar.gz
 
     - name: Upload Docker images
-      uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+      uses: actions/upload-artifact@v4
       with:
         name: docker-images
         path: |
